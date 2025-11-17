@@ -1,8 +1,7 @@
 using ERPAccounting.Application.DTOs;
+using ERPAccounting.Application.Services.Contracts;
 using ERPAccounting.Domain.Entities;
-using ERPAccounting.Infrastructure.Data;
 using FluentValidation;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Linq;
 
@@ -13,18 +12,24 @@ namespace ERPAccounting.Application.Services
     /// </summary>
     public class DocumentLineItemService : IDocumentLineItemService
     {
-        private readonly AppDbContext _context;
+        private readonly IDocumentLineItemRepository _lineItemRepository;
+        private readonly IDocumentRepository _documentRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IValidator<CreateLineItemDto> _createValidator;
         private readonly IValidator<PatchLineItemDto> _patchValidator;
         private readonly ILogger<DocumentLineItemService> _logger;
 
         public DocumentLineItemService(
-            AppDbContext context,
+            IDocumentLineItemRepository lineItemRepository,
+            IDocumentRepository documentRepository,
+            IUnitOfWork unitOfWork,
             IValidator<CreateLineItemDto> createValidator,
             IValidator<PatchLineItemDto> patchValidator,
             ILogger<DocumentLineItemService> logger)
         {
-            _context = context;
+            _lineItemRepository = lineItemRepository;
+            _documentRepository = documentRepository;
+            _unitOfWork = unitOfWork;
             _createValidator = createValidator;
             _patchValidator = patchValidator;
             _logger = logger;
@@ -32,23 +37,14 @@ namespace ERPAccounting.Application.Services
 
         public async Task<IReadOnlyList<DocumentLineItemDto>> GetItemsAsync(int documentId)
         {
-            var items = await _context.DocumentLineItems
-                .AsNoTracking()
-                .Where(item => item.IDDokument == documentId && !item.IsDeleted)
-                .OrderBy(item => item.IDStavkaDokumenta)
-                .ToListAsync();
+            var items = await _lineItemRepository.GetByDocumentAsync(documentId);
 
             return items.Select(MapToDto).ToList();
         }
 
         public async Task<DocumentLineItemDto?> GetAsync(int documentId, int itemId)
         {
-            var entity = await _context.DocumentLineItems
-                .AsNoTracking()
-                .FirstOrDefaultAsync(item =>
-                    item.IDStavkaDokumenta == itemId &&
-                    item.IDDokument == documentId &&
-                    !item.IsDeleted);
+            var entity = await _lineItemRepository.GetAsync(documentId, itemId);
 
             return entity is null ? null : MapToDto(entity);
         }
@@ -76,8 +72,8 @@ namespace ERPAccounting.Application.Services
                 IsDeleted = false
             };
 
-            _context.DocumentLineItems.Add(entity);
-            await _context.SaveChangesAsync();
+            await _lineItemRepository.AddAsync(entity);
+            await _unitOfWork.SaveChangesAsync();
 
             return MapToDto(entity);
         }
@@ -86,11 +82,7 @@ namespace ERPAccounting.Application.Services
         {
             await ValidateAsync(_patchValidator, dto);
 
-            var entity = await _context.DocumentLineItems
-                .FirstOrDefaultAsync(item =>
-                    item.IDStavkaDokumenta == itemId &&
-                    item.IDDokument == documentId &&
-                    !item.IsDeleted);
+            var entity = await _lineItemRepository.GetAsync(documentId, itemId, track: true);
 
             if (entity is null)
             {
@@ -100,24 +92,21 @@ namespace ERPAccounting.Application.Services
             if (entity.StavkaDokumentaTimeStamp is null || !entity.StavkaDokumentaTimeStamp.SequenceEqual(expectedRowVersion))
             {
                 _logger.LogWarning("RowVersion mismatch for item {ItemId}", itemId);
-                throw new DbUpdateConcurrencyException("RowVersion mismatch");
+                throw new InvalidOperationException("RowVersion mismatch");
             }
 
             ApplyPatch(entity, dto);
             entity.UpdatedAt = DateTime.UtcNow;
 
-            await _context.SaveChangesAsync();
+            _lineItemRepository.Update(entity);
+            await _unitOfWork.SaveChangesAsync();
 
             return MapToDto(entity);
         }
 
         public async Task<bool> DeleteAsync(int documentId, int itemId)
         {
-            var entity = await _context.DocumentLineItems
-                .FirstOrDefaultAsync(item =>
-                    item.IDStavkaDokumenta == itemId &&
-                    item.IDDokument == documentId &&
-                    !item.IsDeleted);
+            var entity = await _lineItemRepository.GetAsync(documentId, itemId, track: true);
 
             if (entity is null)
             {
@@ -126,7 +115,7 @@ namespace ERPAccounting.Application.Services
 
             entity.IsDeleted = true;
             entity.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+            await _unitOfWork.SaveChangesAsync();
             return true;
         }
 
@@ -175,9 +164,7 @@ namespace ERPAccounting.Application.Services
 
         private async Task EnsureDocumentExistsAsync(int documentId)
         {
-            var exists = await _context.Documents
-                .AsNoTracking()
-                .AnyAsync(document => document.IDDokument == documentId);
+            var exists = await _documentRepository.ExistsAsync(documentId);
 
             if (!exists)
             {
