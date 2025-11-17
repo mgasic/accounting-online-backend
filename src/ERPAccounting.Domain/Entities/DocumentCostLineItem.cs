@@ -6,7 +6,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace ERPAccounting.Domain.Entities;
 
 [Table("tblDokumentTroskoviStavka")]
-public class DocumentCostLineItem
+public class DocumentCostLineItem : BaseEntity
 {
     [Key]
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]

@@ -1,3 +1,6 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using ERPAccounting.Domain.Entities;
 
@@ -11,6 +14,45 @@ namespace ERPAccounting.Infrastructure.Data
     {
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
+        }
+
+        public override int SaveChanges()
+        {
+            ApplyAuditInformation();
+            return base.SaveChanges();
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            ApplyAuditInformation();
+            return base.SaveChangesAsync(cancellationToken);
+        }
+
+        private void ApplyAuditInformation()
+        {
+            var utcNow = DateTime.UtcNow;
+
+            foreach (var entry in ChangeTracker.Entries<BaseEntity>())
+            {
+                if (entry.State == EntityState.Added)
+                {
+                    entry.Entity.CreatedAt = utcNow;
+                    entry.Entity.UpdatedAt = utcNow;
+                    entry.Entity.IsDeleted = false;
+                }
+                else if (entry.State == EntityState.Modified)
+                {
+                    entry.Property(nameof(BaseEntity.CreatedAt)).IsModified = false;
+                    entry.Property(nameof(BaseEntity.CreatedBy)).IsModified = false;
+                    entry.Entity.UpdatedAt = utcNow;
+                }
+                else if (entry.State == EntityState.Deleted)
+                {
+                    entry.State = EntityState.Modified;
+                    entry.Entity.IsDeleted = true;
+                    entry.Entity.UpdatedAt = utcNow;
+                }
+            }
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -103,6 +145,9 @@ namespace ERPAccounting.Infrastructure.Data
             costEntity.HasKey(e => e.IDDokumentTroskovi);
             costEntity.ToTable("tblDokumentTroskovi");
 
+            // Soft delete filter
+            costEntity.HasQueryFilter(e => !e.IsDeleted);
+
             // RowVersion za konkurentnost
             costEntity.Property(e => e.DokumentTroskoviTimeStamp)
                 .IsRowVersion()
@@ -124,6 +169,9 @@ namespace ERPAccounting.Infrastructure.Data
             var costLineItemEntity = modelBuilder.Entity<DocumentCostLineItem>();
             costLineItemEntity.HasKey(e => e.IDDokumentTroskoviStavka);
             costLineItemEntity.ToTable("tblDokumentTroskoviStavka");
+
+            // Soft delete filter
+            costLineItemEntity.HasQueryFilter(e => !e.IsDeleted);
 
             // RowVersion za konkurentnost - OBAVEZNO!
             costLineItemEntity.Property(e => e.DokumentTroskoviStavkaTimeStamp)

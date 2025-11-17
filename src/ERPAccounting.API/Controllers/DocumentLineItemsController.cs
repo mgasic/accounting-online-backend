@@ -172,10 +172,7 @@ namespace ERPAccounting.API.Controllers
                     IDPoreskaStopa = dto.TaxRateId,
                     ObracunAkciza = (short)(dto.CalculateExcise ? 1 : 0),
                     ObracunPorez = (short)(dto.CalculateTax ? 1 : 0),
-                    Opis = dto.Description,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
-                    IsDeleted = false
+                    Opis = dto.Description
                 };
 
                 _context.DocumentLineItems.Add(item);
