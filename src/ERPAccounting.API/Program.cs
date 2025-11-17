@@ -3,6 +3,7 @@ using ERPAccounting.Application.DTOs;
 using ERPAccounting.Application.DTOs.LineItems;
 using ERPAccounting.Application.Services;
 using ERPAccounting.Application.Validators;
+using ERPAccounting.Infrastructure.Data;
 using FluentValidation;
 using ERPAccounting.Infrastructure.Services;
 
@@ -20,6 +21,7 @@ builder.Services.AddScoped<IDocumentLineItemService, DocumentLineItemService>();
 builder.Services.AddScoped<ILookupService, StoredProcedureService>();
 builder.Services.AddScoped<IValidator<CreateLineItemDto>, CreateLineItemValidator>();
 builder.Services.AddScoped<IValidator<PatchLineItemDto>, PatchLineItemValidator>();
+builder.Services.AddScoped<IStoredProcedureService, StoredProcedureService>();
 
 var app = builder.Build();
 
