@@ -28,6 +28,8 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IDocumentRepository, DocumentRepository>();
         services.AddScoped<IDocumentLineItemRepository, DocumentLineItemRepository>();
+        services.AddScoped<IDocumentCostRepository, DocumentCostRepository>();
+        services.AddScoped<IDocumentCostItemRepository, DocumentCostItemRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IStoredProcedureGateway, StoredProcedureGateway>();
 
