@@ -126,7 +126,6 @@ namespace ERPAccounting.Application.Services
             entity.IsDeleted = true;
             entity.UpdatedAt = DateTime.UtcNow;
             await _unitOfWork.SaveChangesAsync();
-            return true;
         }
 
         private static void ApplyPatch(DocumentLineItem entity, PatchLineItemDto dto)

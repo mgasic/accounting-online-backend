@@ -2,6 +2,7 @@ using ERPAccounting.API.Middleware;
 using ERPAccounting.Application.DTOs;
 using ERPAccounting.Application.Services;
 using ERPAccounting.Application.Validators;
+using ERPAccounting.Common.Extensions;
 using ERPAccounting.Infrastructure.Extensions;
 using FluentValidation;
 
