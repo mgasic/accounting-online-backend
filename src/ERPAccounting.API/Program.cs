@@ -1,15 +1,13 @@
 using ERPAccounting.API.Middleware;
-using ERPAccounting.Application.DTOs;
 using ERPAccounting.Application.DTOs.LineItems;
 using ERPAccounting.Application.Services;
 using ERPAccounting.Application.Services.Contracts;
 using ERPAccounting.Application.Validators;
-using ERPAccounting.Infrastructure.Data;
+using ERPAccounting.Common.Extensions;
 using ERPAccounting.Infrastructure.Extensions;
 using ERPAccounting.Infrastructure.Repositories;
 using ERPAccounting.Infrastructure.Services;
 using FluentValidation;
-using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,6 +27,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IDocumentLineItemRepository, DocumentLineItemRepository>();
 builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<IStoredProcedureGateway, StoredProcedureGateway>();
 builder.Services.AddScoped<IValidator<CreateLineItemDto>, CreateLineItemValidator>();
 builder.Services.AddScoped<IValidator<PatchLineItemDto>, PatchLineItemValidator>();
 builder.Services.AddInfrastructureServices();
