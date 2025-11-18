@@ -1,6 +1,7 @@
 using ERPAccounting.API.Middleware;
 using ERPAccounting.Application.DTOs;
 using ERPAccounting.Application.DTOs.Costs;
+using ERPAccounting.Application.Mapping;
 using ERPAccounting.Application.Services;
 using ERPAccounting.Application.Validators;
 using ERPAccounting.Common.Extensions;
@@ -18,6 +19,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IDocumentService, DocumentService>();
 builder.Services.AddScoped<IDocumentCostService, DocumentCostService>();
 builder.Services.AddScoped<IDocumentLineItemService, DocumentLineItemService>();
+builder.Services.AddAutoMapper(typeof(DocumentMappingProfile).Assembly);
 builder.Services.AddScoped<IValidator<CreateLineItemDto>, CreateLineItemValidator>();
 builder.Services.AddScoped<IValidator<PatchLineItemDto>, PatchLineItemValidator>();
 builder.Services.AddScoped<IValidator<CreateDocumentCostDto>, CreateDocumentCostValidator>();
