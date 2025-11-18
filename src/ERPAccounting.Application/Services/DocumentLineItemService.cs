@@ -69,10 +69,7 @@ namespace ERPAccounting.Application.Services
                 IDPoreskaStopa = dto.TaxRateId,
                 ObracunAkciza = (short)(dto.CalculateExcise ? 1 : 0),
                 ObracunPorez = (short)(dto.CalculateTax ? 1 : 0),
-                Opis = dto.Description,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-                IsDeleted = false
+                Opis = dto.Description
             };
 
             await _lineItemRepository.AddAsync(entity);
@@ -108,8 +105,6 @@ namespace ERPAccounting.Application.Services
             }
 
             ApplyPatch(entity, dto);
-            entity.UpdatedAt = DateTime.UtcNow;
-
             _lineItemRepository.Update(entity);
             await _unitOfWork.SaveChangesAsync();
 
@@ -126,7 +121,6 @@ namespace ERPAccounting.Application.Services
             }
 
             entity.IsDeleted = true;
-            entity.UpdatedAt = DateTime.UtcNow;
             await _unitOfWork.SaveChangesAsync();
         }
 
