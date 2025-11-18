@@ -5,6 +5,8 @@ using ERPAccounting.Application.Services.Contracts;
 using ERPAccounting.Application.Validators;
 using ERPAccounting.Common.Extensions;
 using ERPAccounting.Infrastructure.Extensions;
+using ERPAccounting.Infrastructure.Repositories;
+using ERPAccounting.Infrastructure.Services;
 using FluentValidation;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,6 +20,14 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IDocumentService, DocumentService>();
 builder.Services.AddScoped<IDocumentCostService, DocumentCostService>();
 builder.Services.AddScoped<IDocumentLineItemService, DocumentLineItemService>();
+builder.Services.AddScoped<ILookupService, LookupService>();
+builder.Services.AddScoped<IStoredProcedureService, StoredProcedureService>();
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseInMemoryDatabase("ERPAccounting"));
+builder.Services.AddScoped<IDocumentLineItemRepository, DocumentLineItemRepository>();
+builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<IStoredProcedureGateway, StoredProcedureGateway>();
 builder.Services.AddScoped<IValidator<CreateLineItemDto>, CreateLineItemValidator>();
 builder.Services.AddScoped<IValidator<PatchLineItemDto>, PatchLineItemValidator>();
 builder.Services.AddInfrastructureServices();
