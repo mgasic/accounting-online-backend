@@ -1,3 +1,4 @@
+using ERPAccounting.Common.Models;
 using System.Net;
 using System.Text.Json;
 
@@ -33,7 +34,7 @@ public class ExceptionHandlingMiddleware
     private static Task WriteProblemDetailsAsync(HttpContext context, Exception exception)
     {
         var statusCode = (int)HttpStatusCode.InternalServerError;
-        var problem = new ProblemDetails
+        var problem = new ProblemDetailsDto
         {
             Status = statusCode,
             Title = "Internal Server Error",
