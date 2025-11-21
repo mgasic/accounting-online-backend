@@ -39,6 +39,9 @@ builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
+builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddApplicationServices();
+
 // Konfiguriši Swagger sa Bearer autentifikacijom
 builder.Services.AddSwaggerGen(options =>
 {
