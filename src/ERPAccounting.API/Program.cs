@@ -1,7 +1,7 @@
-using ERPAccounting.API.Extensions;
-using ERPAccounting.API.Middleware;
-using ERPAccounting.Application.Extensions;
-using ERPAccounting.Infrastructure.Extensions;
+﻿using ERPAccounting.Application.DTOs;
+using ERPAccounting.Application.Services;
+using ERPAccounting.Application.Validators;
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -9,26 +9,59 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Učitaj JWT konfiguraciju
+var jwtIssuer = builder.Configuration["Jwt:Issuer"];
+var jwtAudience = builder.Configuration["Jwt:Audience"];
+var jwtSigningKey = builder.Configuration["Jwt:SigningKey"];
+
+if (string.IsNullOrEmpty(jwtSigningKey))
+{
+    throw new InvalidOperationException("JWT SigningKey is missing in configuration!");
+}
+
+// Dodaj JWT autentifikaciju
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSigningKey))
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+// Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// --- Swagger setup with Bearer auth so "Authorize" button appears ---
-builder.Services.AddSwaggerGen(c =>
+// Konfiguriši Swagger sa Bearer autentifikacijom
+builder.Services.AddSwaggerGen(options =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "ERPAccounting.API", Version = "v1" });
-
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    options.SwaggerDoc("v1", new OpenApiInfo
     {
-        Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Enter JWT token as: **Bearer &lt;token&gt;**"
+        Title = "ERP Accounting API",
+        Version = "v1",
+        Description = "Enterprise Resource Planning - Accounting Module API"
     });
 
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    // Dodaj definiciju za Bearer token
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header koristeći Bearer šemu. Primer: \"Bearer {token}\"",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
             new OpenApiSecurityScheme
@@ -39,71 +72,30 @@ builder.Services.AddSwaggerGen(c =>
                     Id = "Bearer"
                 }
             },
-            new string[] { }
+            Array.Empty<string>()
         }
     });
 });
-// -------------------------------------------------------------------
 
-// IMPORTANT: register infrastructure (DbContext, repositories, UoW...) BEFORE application services
-builder.Services.AddInfrastructureServices(builder.Configuration);
-
-// Register application services (they depend on infrastructure)
-builder.Services.AddApplicationServices();
-
-// JWT Authentication configuration
-builder.Services
-    .AddAuthentication(options =>
-    {
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
-    .AddJwtBearer(options =>
-    {
-        var jwtSection = builder.Configuration.GetSection("Jwt");
-        var signingKey = jwtSection.GetValue<string>("SigningKey")
-            ?? throw new InvalidOperationException("JWT SigningKey configuration is missing.");
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtSection.GetValue<string>("Issuer"),
-            ValidAudience = jwtSection.GetValue<string>("Audience"),
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey))
-        };
-    });
+builder.Services.AddScoped<IDocumentLineItemService, DocumentLineItemService>();
+builder.Services.AddScoped<IValidator<CreateLineItemDto>, CreateLineItemValidator>();
+builder.Services.AddScoped<IValidator<PatchLineItemDto>, PatchLineItemValidator>();
 
 var app = builder.Build();
 
-// Custom domain-level exception handling if defined
-app.UseDomainExceptionHandling();
-
-// Configure the HTTP request pipeline.
+// Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "ERPAccounting.API v1");
-        // c.RoutePrefix = string.Empty; // optional: serve Swagger UI at app root
-    });
+    app.UseSwaggerUI();
 }
-
-// app middleware order
-app.UseMiddleware<ExceptionHandlingMiddleware>();
-app.UseMiddleware<RequestLoggingMiddleware>();
-app.UseMiddleware<TenantResolutionMiddleware>();
 
 app.UseHttpsRedirection();
 
+// Obavezno dodaj autentifikaciju i autorizaciju pre MapControllers
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
 app.Run();
-
-public partial class Program;
