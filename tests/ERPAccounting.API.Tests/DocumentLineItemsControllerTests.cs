@@ -1,6 +1,5 @@
 using System.Linq;
 using System.Net;
-using System.Linq;
 using ERPAccounting.API.Controllers;
 using ERPAccounting.Common.Exceptions;
 using ERPAccounting.Application.DTOs;
@@ -54,7 +53,6 @@ public class DocumentLineItemsControllerTests
         var rowVersion = new byte[] { 1, 2, 3, 4 };
         var etag = Convert.ToBase64String(rowVersion);
         var timestamp = DateTime.UtcNow;
-        var rowVersionMatcher = It.Is<byte[]>(b => b.SequenceEqual(rowVersion));
         var updatedItem = new DocumentLineItemDto(
             10,
             1,
@@ -97,7 +95,6 @@ public class DocumentLineItemsControllerTests
     {
         var rowVersion = new byte[] { 5, 6, 7, 8 };
         var etag = Convert.ToBase64String(rowVersion);
-        var rowVersionMatcher = It.Is<byte[]>(b => b.SequenceEqual(rowVersion));
         var serviceMock = new Mock<IDocumentLineItemService>(MockBehavior.Strict);
         serviceMock
             .Setup(s => s.UpdateAsync(1, 10, It.Is<byte[]>(b => b != null && b.SequenceEqual(rowVersion)), It.IsAny<PatchLineItemDto>()))
