@@ -46,6 +46,11 @@ namespace ERPAccounting.Infrastructure.Data
         public DbSet<DependentCostLineItem> DependentCostLineItems { get; set; } = null!;
         public DbSet<DocumentCostVAT> DocumentCostVATs { get; set; } = null!;
 
+        // ═══════════════════════════════════════════════════════════════
+        // AUDIT LOG TABELE
+        public DbSet<ApiAuditLog> ApiAuditLogs { get; set; } = null!;
+        public DbSet<ApiAuditLogEntityChange> ApiAuditLogEntityChanges { get; set; } = null!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Apply configurations
@@ -176,6 +181,47 @@ namespace ERPAccounting.Infrastructure.Data
                 .WithMany(e => e.CostLineItems)
                 .HasForeignKey(e => e.IDDokumentTroskovi)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // ═══════════════════════════════════════════════════════════════
+            // API AUDIT LOG KONFIGURACIJA
+            var auditLogEntity = modelBuilder.Entity<ApiAuditLog>();
+            auditLogEntity.HasKey(e => e.IDAuditLog);
+            auditLogEntity.ToTable("tblAPIAuditLog");
+
+            auditLogEntity.Property(e => e.Timestamp)
+                .IsRequired()
+                .HasDefaultValueSql("GETUTCDATE()");
+
+            auditLogEntity.Property(e => e.HttpMethod)
+                .HasMaxLength(10)
+                .IsRequired();
+
+            auditLogEntity.Property(e => e.Endpoint)
+                .HasMaxLength(500)
+                .IsRequired();
+
+            auditLogEntity.Property(e => e.Username)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            auditLogEntity.Property(e => e.IsSuccess)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            // Relationships
+            auditLogEntity.HasMany(e => e.EntityChanges)
+                .WithOne(e => e.AuditLog)
+                .HasForeignKey(e => e.IDAuditLog)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // API AUDIT LOG ENTITY CHANGE KONFIGURACIJA
+            var auditChangeEntity = modelBuilder.Entity<ApiAuditLogEntityChange>();
+            auditChangeEntity.HasKey(e => e.IDEntityChange);
+            auditChangeEntity.ToTable("tblAPIAuditLogEntityChanges");
+
+            auditChangeEntity.Property(e => e.PropertyName)
+                .HasMaxLength(100)
+                .IsRequired();
 
             base.OnModelCreating(modelBuilder);
         }
