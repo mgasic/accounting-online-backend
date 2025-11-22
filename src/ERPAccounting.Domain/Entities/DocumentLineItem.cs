@@ -124,13 +124,13 @@ public class DocumentLineItem : BaseEntity
     public string? Opis { get; set; }
     
     [Column("ProizvodnjaKolicina")]
-    public double ProizvodnjaKolicina { get; set; } = 0;
+    public decimal ProizvodnjaKolicina { get; set; } = 0;
     
     [Column("ProizvodnjaIDJedinicaMere"), StringLength(6)]
     public string? ProizvodnjaIDJedinicaMere { get; set; }
     
     [Column("ProizvodnjaKoeficijentKolicine")]
-    public double ProizvodnjaKoeficijentKolicine { get; set; } = 0;
+    public decimal ProizvodnjaKoeficijentKolicine { get; set; } = 0;
     
     [Column("IDObrociNarudzbinaStavka")]
     public int? IDObrociNarudzbinaStavka { get; set; }
