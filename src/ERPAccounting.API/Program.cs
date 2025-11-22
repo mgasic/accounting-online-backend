@@ -1,5 +1,7 @@
 using ERPAccounting.Application.Extensions;
+using ERPAccounting.Application.Common.Interfaces;
 using ERPAccounting.Infrastructure.Extensions;
+using ERPAccounting.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -39,7 +41,13 @@ builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
+// IMPORTANT: register infrastructure (DbContext, repositories, UoW...) BEFORE application services
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Registruj ICurrentUserService - POSLE AddInfrastructure, PRE AddApplicationServices
+builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+
+// Register application services (they depend on infrastructure)
 builder.Services.AddApplicationServices();
 
 // Konfiguriši Swagger sa Bearer autentifikacijom
@@ -77,12 +85,6 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 });
-
-// IMPORTANT: register infrastructure (DbContext, repositories, UoW...) BEFORE application services
-builder.Services.AddInfrastructure(builder.Configuration);
-
-// Register application services (they depend on infrastructure)
-builder.Services.AddApplicationServices();
 
 var app = builder.Build();
 
