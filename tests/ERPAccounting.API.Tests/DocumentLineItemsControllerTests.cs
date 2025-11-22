@@ -1,4 +1,5 @@
 using System.Net;
+using System.Linq;
 using ERPAccounting.API.Controllers;
 using ERPAccounting.Common.Exceptions;
 using ERPAccounting.Application.DTOs;
@@ -74,7 +75,7 @@ public class DocumentLineItemsControllerTests
             null);
         var serviceMock = new Mock<IDocumentLineItemService>(MockBehavior.Strict);
         serviceMock
-            .Setup(s => s.UpdateAsync(1, 10, rowVersion, It.IsAny<PatchLineItemDto>()))
+            .Setup(s => s.UpdateAsync(1, 10, It.Is<byte[]>(b => b.SequenceEqual(rowVersion)), It.IsAny<PatchLineItemDto>()))
             .ReturnsAsync(updatedItem);
 
         var controller = CreateController(serviceMock);
@@ -86,7 +87,9 @@ public class DocumentLineItemsControllerTests
         var dto = Assert.IsType<DocumentLineItemDto>(okResult.Value);
         Assert.Equal(updatedItem, dto);
         Assert.Equal($"\"{etag}\"", controller.Response.Headers["ETag"].ToString());
-        serviceMock.Verify(s => s.UpdateAsync(1, 10, rowVersion, It.IsAny<PatchLineItemDto>()), Times.Once);
+        serviceMock.Verify(
+            s => s.UpdateAsync(1, 10, It.Is<byte[]>(b => b.SequenceEqual(rowVersion)), It.IsAny<PatchLineItemDto>()),
+            Times.Once);
     }
 
     [Fact]
@@ -96,7 +99,7 @@ public class DocumentLineItemsControllerTests
         var etag = Convert.ToBase64String(rowVersion);
         var serviceMock = new Mock<IDocumentLineItemService>(MockBehavior.Strict);
         serviceMock
-            .Setup(s => s.UpdateAsync(1, 10, rowVersion, It.IsAny<PatchLineItemDto>()))
+            .Setup(s => s.UpdateAsync(1, 10, It.Is<byte[]>(b => b.SequenceEqual(rowVersion)), It.IsAny<PatchLineItemDto>()))
             .ThrowsAsync(new ConflictException("Row version mismatch"));
 
         var controller = CreateController(serviceMock);
@@ -105,7 +108,9 @@ public class DocumentLineItemsControllerTests
         var exception = await Assert.ThrowsAsync<ConflictException>(() => controller.UpdateItem(1, 10, new PatchLineItemDto()));
 
         Assert.Equal(HttpStatusCode.Conflict, exception.StatusCode);
-        serviceMock.Verify(s => s.UpdateAsync(1, 10, rowVersion, It.IsAny<PatchLineItemDto>()), Times.Once);
+        serviceMock.Verify(
+            s => s.UpdateAsync(1, 10, It.Is<byte[]>(b => b.SequenceEqual(rowVersion)), It.IsAny<PatchLineItemDto>()),
+            Times.Once);
     }
 
     [Fact]
