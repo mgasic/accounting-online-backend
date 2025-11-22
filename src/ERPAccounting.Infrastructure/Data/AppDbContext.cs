@@ -1,9 +1,15 @@
 using System;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using ERPAccounting.Domain.Entities;
+using ERPAccounting.Application.Common.Interfaces;
+using ERPAccounting.Domain.Common;
+using ERPAccounting.Infrastructure.Persistence.Interceptors;
 
 namespace ERPAccounting.Infrastructure.Data
 {
@@ -13,47 +19,21 @@ namespace ERPAccounting.Infrastructure.Data
     /// </summary>
     public class AppDbContext : DbContext
     {
-        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+        private readonly ICurrentUserService _currentUserService;
+
+        public AppDbContext(
+            DbContextOptions<AppDbContext> options,
+            ICurrentUserService currentUserService) : base(options)
         {
+            _currentUserService = currentUserService;
         }
 
-        public override int SaveChanges()
+        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            ApplyAuditInformation();
-            return base.SaveChanges();
-        }
-
-        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-        {
-            ApplyAuditInformation();
-            return base.SaveChangesAsync(cancellationToken);
-        }
-
-        private void ApplyAuditInformation()
-        {
-            var utcNow = DateTime.UtcNow;
-
-            foreach (var entry in ChangeTracker.Entries<BaseEntity>())
-            {
-                if (entry.State == EntityState.Added)
-                {
-                    entry.Entity.CreatedAt = utcNow;
-                    entry.Entity.UpdatedAt = utcNow;
-                    entry.Entity.IsDeleted = false;
-                }
-                else if (entry.State == EntityState.Modified)
-                {
-                    entry.Property(nameof(BaseEntity.CreatedAt)).IsModified = false;
-                    entry.Property(nameof(BaseEntity.CreatedBy)).IsModified = false;
-                    entry.Entity.UpdatedAt = utcNow;
-                }
-                else if (entry.State == EntityState.Deleted)
-                {
-                    entry.State = EntityState.Modified;
-                    entry.Entity.IsDeleted = true;
-                    entry.Entity.UpdatedAt = utcNow;
-                }
-            }
+            // Registruj AuditInterceptor
+            optionsBuilder.AddInterceptors(new AuditInterceptor(_currentUserService));
+            
+            base.OnConfiguring(optionsBuilder);
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -68,18 +48,28 @@ namespace ERPAccounting.Infrastructure.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            base.OnModelCreating(modelBuilder);
+            // Apply configurations
+            // (ako postoje Configuration klase u projektu, možete koristiti ApplyConfigurationsFromAssembly)
+            // modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+
+            // DODAJ: Global query filter za soft delete
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+            {
+                if (typeof(BaseEntity).IsAssignableFrom(entityType.ClrType))
+                {
+                    var parameter = Expression.Parameter(entityType.ClrType, "e");
+                    var property = Expression.Property(parameter, nameof(BaseEntity.IsDeleted));
+                    var filter = Expression.Lambda(Expression.Not(property), parameter);
+                    
+                    modelBuilder.Entity(entityType.ClrType).HasQueryFilter(filter);
+                }
+            }
 
             // ═══════════════════════════════════════════════════════════════
             // DOCUMENT KONFIGURACIJA
             var documentEntity = modelBuilder.Entity<Document>();
             documentEntity.HasKey(e => e.IDDokument);
             documentEntity.ToTable("tblDokument");
-
-            // Soft delete filter - sve query-je će filtrirati obrisane
-            documentEntity.HasQueryFilter(e => !e.IsDeleted);
-
-            ConfigureAuditColumns(documentEntity);
 
             // RowVersion za konkurentnost - OBAVEZNO!
             documentEntity.Property(e => e.DokumentTimeStamp)
@@ -102,11 +92,6 @@ namespace ERPAccounting.Infrastructure.Data
             var lineItemEntity = modelBuilder.Entity<DocumentLineItem>();
             lineItemEntity.HasKey(e => e.IDStavkaDokumenta);
             lineItemEntity.ToTable("tblStavkaDokumenta");
-
-            // Soft delete filter
-            lineItemEntity.HasQueryFilter(e => !e.IsDeleted);
-
-            ConfigureAuditColumns(lineItemEntity);
 
             // RowVersion za konkurentnost - OBAVEZNO!
             lineItemEntity.Property(e => e.StavkaDokumentaTimeStamp)
@@ -150,27 +135,6 @@ namespace ERPAccounting.Infrastructure.Data
             costEntity.HasKey(e => e.IDDokumentTroskovi);
             costEntity.ToTable("tblDokumentTroskovi");
 
-            // Soft delete filter
-            costEntity.HasQueryFilter(e => !e.IsDeleted);
-
-            costEntity.Property(e => e.CreatedAt)
-                .HasColumnType("datetime")
-                .HasDefaultValueSql("GETUTCDATE()");
-
-            costEntity.Property(e => e.UpdatedAt)
-                .HasColumnType("datetime")
-                .HasDefaultValueSql("GETUTCDATE()");
-
-            costEntity.Property(e => e.CreatedBy)
-                .HasColumnType("int");
-
-            costEntity.Property(e => e.UpdatedBy)
-                .HasColumnType("int");
-
-            costEntity.Property(e => e.IsDeleted)
-                .HasColumnType("bit")
-                .HasDefaultValue(false);
-
             // RowVersion za konkurentnost
             costEntity.Property(e => e.DokumentTroskoviTimeStamp)
                 .IsRowVersion()
@@ -193,27 +157,6 @@ namespace ERPAccounting.Infrastructure.Data
             costLineItemEntity.HasKey(e => e.IDDokumentTroskoviStavka);
             costLineItemEntity.ToTable("tblDokumentTroskoviStavka");
 
-            // Soft delete filter
-            costLineItemEntity.HasQueryFilter(e => !e.IsDeleted);
-
-            costLineItemEntity.Property(e => e.CreatedAt)
-                .HasColumnType("datetime")
-                .HasDefaultValueSql("GETUTCDATE()");
-
-            costLineItemEntity.Property(e => e.UpdatedAt)
-                .HasColumnType("datetime")
-                .HasDefaultValueSql("GETUTCDATE()");
-
-            costLineItemEntity.Property(e => e.CreatedBy)
-                .HasColumnType("int");
-
-            costLineItemEntity.Property(e => e.UpdatedBy)
-                .HasColumnType("int");
-
-            costLineItemEntity.Property(e => e.IsDeleted)
-                .HasColumnType("bit")
-                .HasDefaultValue(false);
-
             // RowVersion za konkurentnost - OBAVEZNO!
             costLineItemEntity.Property(e => e.DokumentTroskoviStavkaTimeStamp)
                 .IsRowVersion()
@@ -233,27 +176,8 @@ namespace ERPAccounting.Infrastructure.Data
                 .WithMany(e => e.CostLineItems)
                 .HasForeignKey(e => e.IDDokumentTroskovi)
                 .OnDelete(DeleteBehavior.Cascade);
-        }
-        private static void ConfigureAuditColumns<TEntity>(EntityTypeBuilder<TEntity> entity)
-            where TEntity : BaseEntity
-        {
-            entity.Property(e => e.CreatedAt)
-                .HasColumnType("datetime")
-                .HasDefaultValueSql("GETUTCDATE()");
 
-            entity.Property(e => e.UpdatedAt)
-                .HasColumnType("datetime")
-                .HasDefaultValueSql("GETUTCDATE()");
-
-            entity.Property(e => e.CreatedBy)
-                .HasColumnType("int");
-
-            entity.Property(e => e.UpdatedBy)
-                .HasColumnType("int");
-
-            entity.Property(e => e.IsDeleted)
-                .HasColumnType("bit")
-                .HasDefaultValue(false);
+            base.OnModelCreating(modelBuilder);
         }
     }
 }
