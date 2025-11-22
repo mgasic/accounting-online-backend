@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using ERPAccounting.API.Controllers;
 using ERPAccounting.Application.DTOs.Costs;
 using ERPAccounting.Application.Services;
@@ -46,7 +47,7 @@ public class DocumentCostsControllerTests
         var expectedDto = new DocumentCostDto(5, 1, 10, "ZT", 100, 20, DateTime.UtcNow, "note", "new-etag");
 
         var serviceMock = new Mock<IDocumentCostService>();
-        serviceMock.Setup(s => s.UpdateCostAsync(1, 5, It.Is<byte[]>(b => b.AsSpan().SequenceEqual(rowVersion)), It.IsAny<UpdateDocumentCostDto>()))
+        serviceMock.Setup(s => s.UpdateCostAsync(1, 5, It.Is<byte[]>(b => b != null && b.SequenceEqual(rowVersion)), It.IsAny<UpdateDocumentCostDto>()))
             .ReturnsAsync(expectedDto);
 
         var controller = CreateController(serviceMock.Object);
@@ -68,7 +69,7 @@ public class DocumentCostsControllerTests
 
         var serviceMock = new Mock<IDocumentCostService>();
         serviceMock
-            .Setup(s => s.UpdateCostItemAsync(1, 2, 3, It.Is<byte[]>(b => b.AsSpan().SequenceEqual(rowVersion)), It.IsAny<PatchDocumentCostItemDto>()))
+            .Setup(s => s.UpdateCostItemAsync(1, 2, 3, It.Is<byte[]>(b => b != null && b.SequenceEqual(rowVersion)), It.IsAny<PatchDocumentCostItemDto>()))
             .ReturnsAsync(expectedDto);
 
         var controller = CreateController(serviceMock.Object);
@@ -89,7 +90,7 @@ public class DocumentCostsControllerTests
 
         var serviceMock = new Mock<IDocumentCostService>();
         serviceMock
-            .Setup(s => s.UpdateCostItemAsync(1, 2, 3, It.Is<byte[]>(b => b.AsSpan().SequenceEqual(rowVersion)), It.IsAny<PatchDocumentCostItemDto>()))
+            .Setup(s => s.UpdateCostItemAsync(1, 2, 3, It.Is<byte[]>(b => b != null && b.SequenceEqual(rowVersion)), It.IsAny<PatchDocumentCostItemDto>()))
             .ThrowsAsync(new ConflictException("conflict"));
 
         var controller = CreateController(serviceMock.Object);
