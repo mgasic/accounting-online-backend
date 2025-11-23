@@ -12,33 +12,22 @@ namespace ERPAccounting.Application.Services
     /// <summary>
     /// Implementacija servisa za stavke dokumenta koja upravlja validacijom, mapiranjem i konkurentnošću.
     /// </summary>
-    public class DocumentLineItemService : IDocumentLineItemService
+    public class DocumentLineItemService(
+        IDocumentLineItemRepository lineItemRepository,
+        IDocumentRepository documentRepository,
+        IUnitOfWork unitOfWork,
+        IValidator<CreateLineItemDto> createValidator,
+        IValidator<PatchLineItemDto> patchValidator,
+        IMapper mapper,
+        ILogger<DocumentLineItemService> logger) : IDocumentLineItemService
     {
-        private readonly IDocumentLineItemRepository _lineItemRepository;
-        private readonly IDocumentRepository _documentRepository;
-        private readonly IUnitOfWork _unitOfWork;
-        private readonly IValidator<CreateLineItemDto> _createValidator;
-        private readonly IValidator<PatchLineItemDto> _patchValidator;
-        private readonly IMapper _mapper;
-        private readonly ILogger<DocumentLineItemService> _logger;
-
-        public DocumentLineItemService(
-            IDocumentLineItemRepository lineItemRepository,
-            IDocumentRepository documentRepository,
-            IUnitOfWork unitOfWork,
-            IValidator<CreateLineItemDto> createValidator,
-            IValidator<PatchLineItemDto> patchValidator,
-            IMapper mapper,
-            ILogger<DocumentLineItemService> logger)
-        {
-            _lineItemRepository = lineItemRepository;
-            _documentRepository = documentRepository;
-            _unitOfWork = unitOfWork;
-            _createValidator = createValidator;
-            _patchValidator = patchValidator;
-            _mapper = mapper;
-            _logger = logger;
-        }
+        private readonly IDocumentLineItemRepository _lineItemRepository = lineItemRepository;
+        private readonly IDocumentRepository _documentRepository = documentRepository;
+        private readonly IUnitOfWork _unitOfWork = unitOfWork;
+        private readonly IValidator<CreateLineItemDto> _createValidator = createValidator;
+        private readonly IValidator<PatchLineItemDto> _patchValidator = patchValidator;
+        private readonly IMapper _mapper = mapper;
+        private readonly ILogger<DocumentLineItemService> _logger = logger;
 
         public async Task<IReadOnlyList<DocumentLineItemDto>> GetItemsAsync(int documentId)
         {
@@ -86,44 +75,46 @@ namespace ERPAccounting.Application.Services
 
             var entity = await _lineItemRepository.GetAsync(documentId, itemId, track: true);
 
-            if (entity is null)
+            if (entity is not null)
             {
-                throw new NotFoundException(ErrorMessages.DocumentLineItemNotFound, itemId.ToString(), nameof(DocumentLineItem));
+                if (entity.StavkaDokumentaTimeStamp is null || !entity.StavkaDokumentaTimeStamp.SequenceEqual(expectedRowVersion))
+                {
+                    _logger.LogWarning("RowVersion mismatch for item {ItemId}", itemId);
+                    var currentEtag = entity.StavkaDokumentaTimeStamp is null
+                        ? string.Empty
+                        : Convert.ToBase64String(entity.StavkaDokumentaTimeStamp);
+                    var expectedEtag = Convert.ToBase64String(expectedRowVersion);
+                    throw new ConflictException(
+                        ErrorMessages.ConcurrencyConflict,
+                        itemId.ToString(),
+                        nameof(DocumentLineItem),
+                        expectedEtag,
+                        currentEtag);
+                }
+
+                ApplyPatch(entity, dto);
+                _lineItemRepository.Update(entity);
+                await _unitOfWork.SaveChangesAsync();
+
+                return _mapper.Map<DocumentLineItemDto>(entity);
             }
 
-            if (entity.StavkaDokumentaTimeStamp is null || !entity.StavkaDokumentaTimeStamp.SequenceEqual(expectedRowVersion))
-            {
-                _logger.LogWarning("RowVersion mismatch for item {ItemId}", itemId);
-                var currentEtag = entity.StavkaDokumentaTimeStamp is null
-                    ? string.Empty
-                    : Convert.ToBase64String(entity.StavkaDokumentaTimeStamp);
-                var expectedEtag = Convert.ToBase64String(expectedRowVersion);
-                throw new ConflictException(
-                    ErrorMessages.ConcurrencyConflict,
-                    itemId.ToString(),
-                    nameof(DocumentLineItem),
-                    expectedEtag,
-                    currentEtag);
-            }
-
-            ApplyPatch(entity, dto);
-            _lineItemRepository.Update(entity);
-            await _unitOfWork.SaveChangesAsync();
-
-            return _mapper.Map<DocumentLineItemDto>(entity);
+            throw new NotFoundException(ErrorMessages.DocumentLineItemNotFound, itemId.ToString(), nameof(DocumentLineItem));
         }
 
         public async Task DeleteAsync(int documentId, int itemId)
         {
             var entity = await _lineItemRepository.GetAsync(documentId, itemId, track: true);
 
-            if (entity is null)
+            if (entity is not null)
+            {
+                entity.IsDeleted = true;
+                await _unitOfWork.SaveChangesAsync();
+            }
+            else
             {
                 throw new NotFoundException(ErrorMessages.DocumentLineItemNotFound, itemId.ToString(), nameof(DocumentLineItem));
             }
-
-            entity.IsDeleted = true;
-            await _unitOfWork.SaveChangesAsync();
         }
 
         private static void ApplyPatch(DocumentLineItem entity, PatchLineItemDto dto)
@@ -194,5 +185,5 @@ namespace ERPAccounting.Application.Services
             }
         }
 
-    }
+    }   
 }
