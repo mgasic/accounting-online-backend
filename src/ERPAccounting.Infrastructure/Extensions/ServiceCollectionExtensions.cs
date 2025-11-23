@@ -18,17 +18,26 @@ public static class ServiceCollectionExtensions
     {
         // Database
         services.AddDbContext<AppDbContext>(options =>
-            options.UseSqlServer(
-                configuration.GetConnectionString("DefaultConnection"),
-                sqlOptions => sqlOptions
-                    .CommandTimeout(180)
-                    .EnableRetryOnFailure()));
+            ConfigureDatabase(options, configuration));
+
+        // Factory needed for background/asynchronous operations (AuditLogService)
+        services.AddDbContextFactory<AppDbContext>(options =>
+            ConfigureDatabase(options, configuration));
 
         RegisterRepositories(services);
 
         services.AddScoped<IAuditLogService, AuditLogService>();
 
         return services;
+    }
+
+    private static void ConfigureDatabase(DbContextOptionsBuilder options, IConfiguration configuration)
+    {
+        options.UseSqlServer(
+            configuration.GetConnectionString("DefaultConnection"),
+            sqlOptions => sqlOptions
+                .CommandTimeout(180)
+                .EnableRetryOnFailure());
     }
 
     private static void RegisterRepositories(IServiceCollection services)
