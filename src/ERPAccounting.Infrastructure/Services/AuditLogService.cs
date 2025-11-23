@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using ERPAccounting.Common.Interfaces;
 using ERPAccounting.Domain.Entities;
 using ERPAccounting.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace ERPAccounting.Infrastructure.Services
@@ -14,14 +15,14 @@ namespace ERPAccounting.Infrastructure.Services
     /// </summary>
     public class AuditLogService : IAuditLogService
     {
-        private readonly AppDbContext _context;
+        private readonly IDbContextFactory<AppDbContext> _contextFactory;
         private readonly ILogger<AuditLogService> _logger;
 
         public AuditLogService(
-            AppDbContext context,
+            IDbContextFactory<AppDbContext> contextFactory,
             ILogger<AuditLogService> logger)
         {
-            _context = context;
+            _contextFactory = contextFactory;
             _logger = logger;
         }
 
@@ -33,8 +34,10 @@ namespace ERPAccounting.Infrastructure.Services
         {
             try
             {
-                _context.ApiAuditLogs.Add(auditLog);
-                await _context.SaveChangesAsync(default);
+                await using var context = await _contextFactory.CreateDbContextAsync();
+
+                context.ApiAuditLogs.Add(auditLog);
+                await context.SaveChangesAsync(default);
 
                 _logger.LogDebug(
                     "API call logged: {Method} {Endpoint} - {StatusCode} ({ResponseTime}ms)",
@@ -67,6 +70,8 @@ namespace ERPAccounting.Infrastructure.Services
         {
             try
             {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+
                 if (changes == null || changes.Count == 0)
                 {
                     _logger.LogWarning(
@@ -87,10 +92,10 @@ namespace ERPAccounting.Infrastructure.Services
                         DataType = change.Value.NewValue?.GetType().Name ?? "null"
                     };
 
-                    _context.ApiAuditLogEntityChanges.Add(entityChange);
+                    context.ApiAuditLogEntityChanges.Add(entityChange);
                 }
 
-                await _context.SaveChangesAsync(default);
+                await context.SaveChangesAsync(default);
 
                 _logger.LogDebug(
                     "Logged {Count} field changes for {EntityType} {EntityId}",
