@@ -68,8 +68,13 @@ namespace ERPAccounting.Infrastructure.Data
                         .HasDefaultValue(false);
 
                     var parameter = Expression.Parameter(entityType.ClrType, "e");
-                    var property = Expression.Property(parameter, nameof(BaseEntity.IsDeleted));
-                    var filter = Expression.Lambda(Expression.Not(property), parameter);
+                    var isDeletedProperty = Expression.Call(
+                        typeof(EF).GetMethod(nameof(EF.Property), BindingFlags.Static | BindingFlags.Public)!
+                            .MakeGenericMethod(typeof(bool)),
+                        parameter,
+                        Expression.Constant(nameof(BaseEntity.IsDeleted)));
+
+                    var filter = Expression.Lambda(Expression.Equal(isDeletedProperty, Expression.Constant(false)), parameter);
 
                     modelBuilder.Entity(entityType.ClrType).HasQueryFilter(filter);
                 }
