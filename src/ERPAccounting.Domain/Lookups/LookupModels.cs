@@ -62,10 +62,10 @@ public record ArticleLookup(
     [property: Column("JM")] string? JedinicaMere,
     [property: Column("IDPoreskaStopa")] string? IdPoreskaStopa,
     [property: Column("ProcenatPoreza")] double ProcenatPoreza,
-    [property: Column("Akciza")] decimal Akciza,
-    [property: Column("KoeficijentKolicine")] decimal KoeficijentKolicine,
+    [property: Column("Akciza", TypeName = "money")] decimal Akciza,
+    [property: Column("KoeficijentKolicine", TypeName = "money")] decimal KoeficijentKolicine,
     [property: Column("ImaLot")] bool ImaLot,
-    [property: Column("OtkupnaCena")] decimal? OtkupnaCena,
+    [property: Column("OtkupnaCena", TypeName = "money")] decimal? OtkupnaCena,
     [property: Column("PoljoprivredniProizvod")] bool PoljoprivredniProizvod
 );
 
