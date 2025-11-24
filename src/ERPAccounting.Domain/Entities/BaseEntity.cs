@@ -39,6 +39,6 @@ public abstract class BaseEntity : IEntity
     /// Oznaka za soft delete. Entitet nije fizički obrisan iz baze.
     /// Query filter automatski filtrira IsDeleted = true zapise.
     /// </summary>
-    [Column("IsDeleted")]
+    [Column("IsDeleted", TypeName = "bit")]
     public bool IsDeleted { get; set; } = false;
 }
