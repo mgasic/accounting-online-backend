@@ -57,7 +57,7 @@ namespace ERPAccounting.Infrastructure.Data
             // (ako postoje Configuration klase u projektu, možete koristiti ApplyConfigurationsFromAssembly)
             // modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
 
-            // DODAJ: Global query filter za soft delete samo za ISoftDeletable entitete
+            // DODAJ: Global query filter za soft delete samo za entitete koji implementiraju ISoftDeletable
             foreach (var entityType in modelBuilder.Model.GetEntityTypes())
             {
                 if (typeof(ISoftDeletable).IsAssignableFrom(entityType.ClrType))

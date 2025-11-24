@@ -56,4 +56,9 @@ public class DocumentCostItemRepository : IDocumentCostItemRepository
     {
         _context.DocumentCostLineItems.UpdateRange(entities);
     }
+
+    public void Remove(DocumentCostLineItem entity)
+    {
+        _context.DocumentCostLineItems.Remove(entity);
+    }
 }

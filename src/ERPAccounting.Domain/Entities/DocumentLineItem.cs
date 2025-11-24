@@ -209,7 +209,7 @@ public class DocumentLineItem : BaseEntity, ISoftDeletable
     [Column("IDBoja")]
     public int? IDBoja { get; set; }
 
-    public bool IsDeleted { get; set; } = false;
+    public bool IsDeleted { get; set; }
 
     // Navigation
     public virtual Document Document { get; set; } = null!;

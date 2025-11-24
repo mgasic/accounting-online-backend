@@ -13,7 +13,7 @@ namespace ERPAccounting.Infrastructure.Persistence.Interceptors
 {
     /// <summary>
     /// Interceptor koji automatski popunjava audit property-je pri SaveChanges().
-    /// Implementira soft delete pattern - DELETE operacije se konvertuju u UPDATE sa IsDeleted = true.
+    /// Implementira soft delete pattern samo za entitete koji podržavaju ISoftDeletable - DELETE operacije se konvertuju u UPDATE sa IsDeleted = true.
     /// </summary>
     public class AuditInterceptor(ICurrentUserService currentUserService) : SaveChangesInterceptor
     {
@@ -110,12 +110,13 @@ namespace ERPAccounting.Infrastructure.Persistence.Interceptors
         {
             if (entry.Entity is ISoftDeletable softDeletable)
             {
-                // KLJUČNO: Menjamo state iz Deleted u Modified
+                // KLJUČNO: Menjamo state iz Deleted u Modified samo za soft deletable entitete
                 entry.State = EntityState.Modified;
                 softDeletable.IsDeleted = true;
-                entry.Entity.UpdatedAt = timestamp;
-                entry.Entity.UpdatedBy = username;
             }
+
+            entry.Entity.UpdatedAt = timestamp;
+            entry.Entity.UpdatedBy = username;
         }
     }
 }

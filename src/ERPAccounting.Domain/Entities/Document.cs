@@ -118,6 +118,8 @@ public class Document : BaseEntity, ISoftDeletable
     
     [Column("IznosPrevaranti", TypeName = "money")]
     public decimal IznosPrevaranti { get; set; } = 0;
+
+    public bool IsDeleted { get; set; }
     
     [Column("ZavisniTroskoviBezPDVa", TypeName = "money")]
     public decimal ZavisniTroskoviBezPDVa { get; set; } = 0;

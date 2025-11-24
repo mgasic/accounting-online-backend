@@ -6,7 +6,8 @@ namespace ERPAccounting.Domain.Entities;
 
 /// <summary>
 /// Bazna klasa za sve entitete sa audit funkcionalnostima.
-/// Većina audit polja su [NotMapped] i popunjavaju se kroz AuditInterceptor pri SaveChanges().
+/// Većina audit polja su [NotMapped] i popunjavaju se kroz AuditInterceptor pri SaveChanges(),
+/// dok se soft delete primenjuje samo na entitete koji eksplicitno implementiraju ISoftDeletable.
 /// </summary>
 public abstract class BaseEntity : IEntity
 {
