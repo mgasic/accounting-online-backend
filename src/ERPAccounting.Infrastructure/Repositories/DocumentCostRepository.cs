@@ -18,6 +18,8 @@ public class DocumentCostRepository : IDocumentCostRepository
     public async Task<IReadOnlyList<DocumentCost>> GetByDocumentAsync(int documentId, CancellationToken cancellationToken = default)
     {
         return await _context.DocumentCosts
+            .Include(cost => cost.CostLineItems)
+                .ThenInclude(item => item.VATItems)
             .AsNoTracking()
             .Include(cost => cost.CostLineItems)
                 .ThenInclude(item => item.VATItems)
