@@ -33,13 +33,15 @@ public class DocumentCostRepository : IDocumentCostRepository
         bool includeChildren = false,
         CancellationToken cancellationToken = default)
     {
-        IQueryable<DocumentCost> query = _context.DocumentCosts;
+        IQueryable<DocumentCost> query = _context.DocumentCosts
+            .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId);
 
         if (includeChildren && !track)
         {
             query = query
                 .Include(cost => cost.CostLineItems)
-                    .ThenInclude(item => item.VATItems);
+                    .ThenInclude(item => item.VATItems)
+                .AsNoTracking();
         }
 
         query = track ? query.AsTracking() : query.AsNoTracking();
@@ -56,7 +58,6 @@ public class DocumentCostRepository : IDocumentCostRepository
 
     public void Update(DocumentCost entity)
     {
-        _context.DocumentCosts.Attach(entity);
         _context.Entry(entity).State = EntityState.Modified;
     }
 
