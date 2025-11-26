@@ -61,7 +61,10 @@ public class DocumentCostRepository : IDocumentCostRepository
         CancellationToken cancellationToken = default)
     {
         var query = _context.DocumentCosts
-            .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId);
+            .Include(cost => cost.CostLineItems)
+                .ThenInclude(item => item.VATItems)
+            .AsSplitQuery()
+            .AsQueryable();
 
         if (track)
         {
