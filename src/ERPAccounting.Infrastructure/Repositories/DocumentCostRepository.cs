@@ -33,12 +33,19 @@ public class DocumentCostRepository : IDocumentCostRepository
             .Include(cost => cost.CostLineItems)
                 .ThenInclude(item => item.VATItems);
 
-        if (!track)
+        if (includeChildren && !track)
         {
-            query = query.AsNoTracking();
+            query = query
+                .Include(cost => cost.CostLineItems)
+                    .ThenInclude(item => item.VATItems)
+                .AsNoTracking();
         }
 
-        return query;
+        query = track ? query.AsTracking() : query.AsNoTracking();
+
+        return await query
+            .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task AddAsync(DocumentCost entity, CancellationToken cancellationToken = default)
@@ -48,7 +55,7 @@ public class DocumentCostRepository : IDocumentCostRepository
 
     public void Update(DocumentCost entity)
     {
-        _context.DocumentCosts.Update(entity);
+        _context.Entry(entity).State = EntityState.Modified;
     }
 
     public void Remove(DocumentCost entity)
