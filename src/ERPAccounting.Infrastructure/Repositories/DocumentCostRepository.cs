@@ -35,14 +35,14 @@ public class DocumentCostRepository : IDocumentCostRepository
     {
         IQueryable<DocumentCost> query = _context.DocumentCosts;
 
-        query = track ? query.AsTracking() : query.AsNoTracking();
-
         if (includeChildren && !track)
         {
             query = query
                 .Include(cost => cost.CostLineItems)
                     .ThenInclude(item => item.VATItems);
         }
+
+        query = track ? query.AsTracking() : query.AsNoTracking();
 
         return await query
             .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
@@ -56,7 +56,8 @@ public class DocumentCostRepository : IDocumentCostRepository
 
     public void Update(DocumentCost entity)
     {
-        _context.DocumentCosts.Update(entity);
+        _context.DocumentCosts.Attach(entity);
+        _context.Entry(entity).State = EntityState.Modified;
     }
 
     public void Remove(DocumentCost entity)
