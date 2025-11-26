@@ -31,15 +31,18 @@ public class DocumentCostRepository : IDocumentCostRepository
         IQueryable<DocumentCost> query = _context.DocumentCosts
             .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId);
 
-        if (!track)
+        if (track)
         {
-            query = query
-                .Include(cost => cost.CostLineItems)
-                    .ThenInclude(item => item.VATItems)
-                .AsNoTracking();
+            return await query
+                .AsTracking()
+                .FirstOrDefaultAsync(cancellationToken);
         }
 
-        return await query.FirstOrDefaultAsync(cancellationToken);
+        return await query
+            .Include(cost => cost.CostLineItems)
+                .ThenInclude(item => item.VATItems)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task AddAsync(DocumentCost entity, CancellationToken cancellationToken = default)
