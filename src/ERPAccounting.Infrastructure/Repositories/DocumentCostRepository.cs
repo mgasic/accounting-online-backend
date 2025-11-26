@@ -17,42 +17,36 @@ public class DocumentCostRepository : IDocumentCostRepository
 
     public async Task<IReadOnlyList<DocumentCost>> GetByDocumentAsync(int documentId, CancellationToken cancellationToken = default)
     {
-        return await GetDetailedByDocumentAsync(documentId, cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<DocumentCost>> GetDetailedByDocumentAsync(int documentId, CancellationToken cancellationToken = default)
-    {
-        return await BuildDetailedQuery(track: false)
+        return await _context.DocumentCosts
+            .Include(cost => cost.CostLineItems)
+                .ThenInclude(item => item.VATItems)
+            .AsNoTracking()
             .Where(cost => cost.IDDokument == documentId)
             .OrderBy(cost => cost.IDDokumentTroskovi)
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<DocumentCost?> GetAsync(int documentId, int costId, bool track = false, CancellationToken cancellationToken = default)
+    public async Task<DocumentCost?> GetAsync(
+        int documentId,
+        int costId,
+        bool track = false,
+        bool includeChildren = false,
+        CancellationToken cancellationToken = default)
     {
-        return await GetDetailedAsync(documentId, costId, track, cancellationToken);
-    }
+        IQueryable<DocumentCost> query = _context.DocumentCosts;
 
-    public async Task<DocumentCost?> GetDetailedAsync(int documentId, int costId, bool track = false, CancellationToken cancellationToken = default)
-    {
-        return await BuildDetailedQuery(track)
-            .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
-            .FirstOrDefaultAsync(cancellationToken);
-    }
-
-    private IQueryable<DocumentCost> BuildDetailedQuery(bool track)
-    {
-        var query = _context.DocumentCosts
-            .Include(cost => cost.CostLineItems)
-                .ThenInclude(item => item.VATItems)
-            .AsQueryable();
-
-        if (!track)
+        if (includeChildren && !track)
         {
-            query = query.AsNoTracking();
+            query = query
+                .Include(cost => cost.CostLineItems)
+                    .ThenInclude(item => item.VATItems);
         }
 
-        return query;
+        query = track ? query.AsTracking() : query.AsNoTracking();
+
+        return await query
+            .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task AddAsync(DocumentCost entity, CancellationToken cancellationToken = default)
@@ -62,7 +56,8 @@ public class DocumentCostRepository : IDocumentCostRepository
 
     public void Update(DocumentCost entity)
     {
-        _context.DocumentCosts.Update(entity);
+        _context.DocumentCosts.Attach(entity);
+        _context.Entry(entity).State = EntityState.Modified;
     }
 
     public void Remove(DocumentCost entity)
