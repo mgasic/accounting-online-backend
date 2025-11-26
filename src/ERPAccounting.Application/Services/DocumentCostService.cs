@@ -49,13 +49,13 @@ public class DocumentCostService : IDocumentCostService
 
     public async Task<IReadOnlyList<DocumentCostDto>> GetCostsAsync(int documentId)
     {
-        var costs = await _costRepository.GetByDocumentAsync(documentId);
+        var costs = await _costRepository.GetDetailedByDocumentAsync(documentId);
         return costs.Select(cost => MapToDto(cost)).ToList();
     }
 
     public async Task<DocumentCostDto?> GetCostByIdAsync(int documentId, int costId)
     {
-        var entity = await _costRepository.GetAsync(documentId, costId);
+        var entity = await _costRepository.GetAsync(documentId, costId, includeChildren: true);
         return entity is null ? null : MapToDto(entity);
     }
 
@@ -104,7 +104,6 @@ public class DocumentCostService : IDocumentCostService
         entity.IDValuta = dto.CurrencyId;
         entity.Kurs = dto.ExchangeRate;
 
-        _costRepository.Update(entity);
         await _unitOfWork.SaveChangesAsync();
 
         return MapToDto(entity);
@@ -382,7 +381,7 @@ public class DocumentCostService : IDocumentCostService
 
     private async Task<DocumentCost> EnsureCostExistsAsync(int documentId, int costId, bool track = false)
     {
-        var entity = await _costRepository.GetAsync(documentId, costId, track);
+        var entity = await _costRepository.GetDetailedAsync(documentId, costId, track);
         if (entity is null)
         {
             throw new NotFoundException(ErrorMessages.DocumentCostNotFound, costId.ToString(), nameof(DocumentCost));
