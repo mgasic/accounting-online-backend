@@ -56,6 +56,29 @@ public class DocumentCostRepository : IDocumentCostRepository
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<DocumentCost?> GetDetailedAsync(
+        int documentId,
+        int costId,
+        bool track = false,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.DocumentCosts
+            .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId);
+
+        if (track)
+        {
+            return await query
+                .AsTracking()
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        return await query
+            .Include(cost => cost.CostLineItems)
+                .ThenInclude(item => item.VATItems)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task AddAsync(DocumentCost entity, CancellationToken cancellationToken = default)
     {
         await _context.DocumentCosts.AddAsync(entity, cancellationToken);
