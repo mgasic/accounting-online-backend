@@ -240,8 +240,13 @@ BEGIN
     DECLARE @Remaining NVARCHAR(MAX) = @NewDef;
     DECLARE @Line NVARCHAR(MAX);
     DECLARE @LineBreakPosition INT;
+    DECLARE @LineBreakLength INT;
     DECLARE @TrailingWhitespace NVARCHAR(MAX);
     DECLARE @TrimmedLine NVARCHAR(MAX);
+    DECLARE @LeadingWhitespace NVARCHAR(MAX);
+    DECLARE @NormalizedLine NVARCHAR(MAX);
+    DECLARE @LastLineWasThrow BIT = 0;
+    DECLARE @LastThrowIndent NVARCHAR(MAX) = N'';
 
     WHILE LEN(@Remaining) > 0
     BEGIN
@@ -258,17 +263,37 @@ BEGIN
             SET @Remaining = SUBSTRING(@Remaining, @LineBreakPosition + LEN(@LineBreak), LEN(@Remaining));
         END
 
-        IF @Line LIKE '%THROW [0-9][0-9][0-9][0-9][0-9], ''%' AND @Line NOT LIKE '%THROW%''%, [0-9]%'
+        SET @NormalizedLine = LTRIM(RTRIM(@Line));
+
+        IF @LastLineWasThrow = 1 AND (@NormalizedLine = 'rollback tran' OR @NormalizedLine = 'ROLLBACK TRAN')
         BEGIN
-            SET @TrailingWhitespace = RIGHT(@Line, LEN(@Line) - LEN(RTRIM(@Line)));
-            SET @TrimmedLine = RTRIM(@Line);
+            SET @Line = @LastThrowIndent + '-- ROLLBACK is automatic with THROW';
+            SET @LastLineWasThrow = 0;
+            SET @LastThrowIndent = N'';
+        END
+        ELSE
+        BEGIN
+            IF PATINDEX('THROW [0-9][0-9][0-9][0-9][0-9], ''%''', @NormalizedLine) = 1
+               AND @NormalizedLine NOT LIKE 'THROW%''%, [0-9]%'
+            BEGIN
+                SET @TrailingWhitespace = RIGHT(@Line, LEN(@Line) - LEN(RTRIM(@Line)));
+                SET @TrimmedLine = RTRIM(@Line);
+                SET @LeadingWhitespace = LEFT(@TrimmedLine, LEN(@TrimmedLine) - LEN(LTRIM(@TrimmedLine)));
 
-            IF RIGHT(@TrimmedLine, 1) = ';'
-                SET @TrimmedLine = LEFT(@TrimmedLine, LEN(@TrimmedLine) - 1) + ', 1;';
+                IF RIGHT(@TrimmedLine, 1) = ';'
+                    SET @TrimmedLine = LEFT(@TrimmedLine, LEN(@TrimmedLine) - 1) + ', 1;';
+                ELSE
+                    SET @TrimmedLine = @TrimmedLine + ', 1;';
+
+                SET @Line = @TrimmedLine + @TrailingWhitespace;
+                SET @LastLineWasThrow = 1;
+                SET @LastThrowIndent = @LeadingWhitespace;
+            END
             ELSE
-                SET @TrimmedLine = @TrimmedLine + ', 1;';
-
-            SET @Line = @TrimmedLine + @TrailingWhitespace;
+            BEGIN
+                SET @LastLineWasThrow = 0;
+                SET @LastThrowIndent = N'';
+            END
         END
 
         IF @ProcessedDef = N''

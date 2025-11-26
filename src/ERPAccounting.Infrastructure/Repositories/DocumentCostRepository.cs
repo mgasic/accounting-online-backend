@@ -18,6 +18,8 @@ public class DocumentCostRepository : IDocumentCostRepository
     public async Task<IReadOnlyList<DocumentCost>> GetByDocumentAsync(int documentId, CancellationToken cancellationToken = default)
     {
         return await _context.DocumentCosts
+            .Include(cost => cost.CostLineItems)
+                .ThenInclude(item => item.VATItems)
             .AsNoTracking()
             .Where(cost => cost.IDDokument == documentId)
             .OrderBy(cost => cost.IDDokumentTroskovi)
@@ -27,14 +29,23 @@ public class DocumentCostRepository : IDocumentCostRepository
     public async Task<DocumentCost?> GetAsync(int documentId, int costId, bool track = false, CancellationToken cancellationToken = default)
     {
         IQueryable<DocumentCost> query = _context.DocumentCosts
-            .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId);
+            .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
+            .Include(cost => cost.CostLineItems)
+                .ThenInclude(item => item.VATItems);
 
-        if (!track)
+        if (includeChildren && !track)
         {
-            query = query.AsNoTracking();
+            query = query
+                .Include(cost => cost.CostLineItems)
+                    .ThenInclude(item => item.VATItems)
+                .AsNoTracking();
         }
 
-        return await query.FirstOrDefaultAsync(cancellationToken);
+        query = track ? query.AsTracking() : query.AsNoTracking();
+
+        return await query
+            .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task AddAsync(DocumentCost entity, CancellationToken cancellationToken = default)
@@ -44,7 +55,7 @@ public class DocumentCostRepository : IDocumentCostRepository
 
     public void Update(DocumentCost entity)
     {
-        _context.DocumentCosts.Update(entity);
+        _context.Entry(entity).State = EntityState.Modified;
     }
 
     public void Remove(DocumentCost entity)
