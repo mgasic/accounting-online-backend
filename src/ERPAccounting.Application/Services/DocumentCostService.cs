@@ -55,7 +55,7 @@ public class DocumentCostService : IDocumentCostService
 
     public async Task<DocumentCostDto?> GetCostByIdAsync(int documentId, int costId)
     {
-        var entity = await _costRepository.GetAsync(documentId, costId);
+        var entity = await _costRepository.GetAsync(documentId, costId, includeChildren: true);
         return entity is null ? null : MapToDto(entity);
     }
 

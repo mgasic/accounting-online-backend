@@ -26,21 +26,26 @@ public class DocumentCostRepository : IDocumentCostRepository
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<DocumentCost?> GetAsync(int documentId, int costId, bool track = false, CancellationToken cancellationToken = default)
+    public async Task<DocumentCost?> GetAsync(
+        int documentId,
+        int costId,
+        bool track = false,
+        bool includeChildren = false,
+        CancellationToken cancellationToken = default)
     {
-        if (track)
+        IQueryable<DocumentCost> query = _context.DocumentCosts;
+
+        query = track ? query.AsTracking() : query.AsNoTracking();
+
+        if (includeChildren)
         {
-            return await _context.DocumentCosts
-                .AsTracking()
-                .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
-                .FirstOrDefaultAsync(cancellationToken);
+            query = query
+                .Include(cost => cost.CostLineItems)
+                    .ThenInclude(item => item.VATItems);
         }
 
-        return await _context.DocumentCosts
+        return await query
             .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
-            .Include(cost => cost.CostLineItems)
-                .ThenInclude(item => item.VATItems)
-            .AsNoTracking()
             .FirstOrDefaultAsync(cancellationToken);
     }
 
