@@ -37,7 +37,7 @@ public class DocumentCostRepository : IDocumentCostRepository
 
         query = track ? query.AsTracking() : query.AsNoTracking();
 
-        if (includeChildren)
+        if (includeChildren && !track)
         {
             query = query
                 .Include(cost => cost.CostLineItems)
