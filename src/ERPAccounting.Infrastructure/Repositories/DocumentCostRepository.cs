@@ -33,6 +33,14 @@ public class DocumentCostRepository : IDocumentCostRepository
         bool includeChildren = false,
         CancellationToken cancellationToken = default)
     {
+        if (track)
+        {
+            return await _context.DocumentCosts
+                .AsTracking()
+                .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
         IQueryable<DocumentCost> query = _context.DocumentCosts;
 
         // Avoid loading child collections on tracked queries to prevent marking the full graph as modified
@@ -44,9 +52,8 @@ public class DocumentCostRepository : IDocumentCostRepository
                     .ThenInclude(item => item.VATItems);
         }
 
-        query = track ? query.AsTracking() : query.AsNoTracking();
-
         return await query
+            .AsNoTracking()
             .Where(cost => cost.IDDokumentTroskovi == costId && cost.IDDokument == documentId)
             .FirstOrDefaultAsync(cancellationToken);
     }
