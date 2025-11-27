@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ERPAccounting.Common.Interfaces;
 using ERPAccounting.Domain.Entities;
+using ERPAccounting.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 
 namespace ERPAccounting.Infrastructure.Middleware
@@ -13,6 +14,7 @@ namespace ERPAccounting.Infrastructure.Middleware
     /// <summary>
     /// Middleware za automatsko logovanje svih API poziva.
     /// Hvataj request/response i čuva u tblAPIAuditLog tabelu.
+    /// Setuje audit log ID na AppDbContext za entity-level tracking.
     /// </summary>
     public class ApiAuditMiddleware(RequestDelegate next)
     {
@@ -21,7 +23,8 @@ namespace ERPAccounting.Infrastructure.Middleware
         public async Task InvokeAsync(
             HttpContext context,
             IAuditLogService auditLogService,
-            ICurrentUserService currentUserService)
+            ICurrentUserService currentUserService,
+            AppDbContext dbContext)  // NOVO: Dodato za setovanje audit log ID-a
         {
             // Kreiraj audit log objekat
             var auditLog = new ApiAuditLog
@@ -39,7 +42,7 @@ namespace ERPAccounting.Infrastructure.Middleware
             };
 
             // Capture request body za POST/PUT operacije
-            if (context.Request.Method == "POST" || context.Request.Method == "PUT")
+            if (context.Request.Method == "POST" || context.Request.Method == "PUT" || context.Request.Method == "PATCH")
             {
                 context.Request.EnableBuffering();
                 using var reader = new StreamReader(
@@ -63,6 +66,13 @@ namespace ERPAccounting.Infrastructure.Middleware
 
             try
             {
+                // BITNO: Loguj audit log PRE pozivanja next middleware-a
+                // da bi imali IDAuditLog za entity tracking
+                await auditLogService.LogAsync(auditLog);
+
+                // Setuj audit log ID na DbContext - takođe entity changes mogu da se veu za ovaj request
+                dbContext.SetCurrentAuditLogId(auditLog.IDAuditLog);
+
                 // Pozovi sledeći middleware u pipeline
                 await _next(context);
                 stopwatch.Stop();
@@ -84,6 +94,10 @@ namespace ERPAccounting.Infrastructure.Middleware
                 {
                     await CopyResponseAsync(responseBody, originalBodyStream);
                 }
+
+                // Ažuriraj audit log sa response podacima
+                // Koristimo novi DbContext da ne interferiramo sa main request
+                await auditLogService.LogAsync(auditLog);
             }
             catch (Exception ex)
             {
@@ -96,6 +110,16 @@ namespace ERPAccounting.Infrastructure.Middleware
                 auditLog.ExceptionDetails = ex.ToString();
                 auditLog.ResponseStatusCode = 500;
 
+                // Ažuriraj audit log sa exception podacima
+                try
+                {
+                    await auditLogService.LogAsync(auditLog);
+                }
+                catch
+                {
+                    // Ignore audit update failure
+                }
+
                 // Re-throw exception - audit ne sme da proguta greške
                 throw;
             }
@@ -103,16 +127,6 @@ namespace ERPAccounting.Infrastructure.Middleware
             {
                 // Vrati originalni stream kako bi naredni middleware mogao da piše u response
                 context.Response.Body = originalBodyStream;
-
-                try
-                {
-                    await auditLogService.LogAsync(auditLog);
-                }
-                catch
-                {
-                    // Ignore errors - audit failure ne sme da crash-uje aplikaciju
-                    // AuditLogService već loguje greške u svoj logger
-                }
             }
         }
 
@@ -152,7 +166,7 @@ namespace ERPAccounting.Infrastructure.Middleware
                 return null;
             }
         }
-
+        
         private static async Task CopyResponseAsync(Stream source, Stream destination)
         {
             try
