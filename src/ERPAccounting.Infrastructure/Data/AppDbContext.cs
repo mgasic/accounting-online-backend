@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
 using ERPAccounting.Domain.Entities;
 using ERPAccounting.Common.Interfaces;
 
@@ -15,9 +16,10 @@ namespace ERPAccounting.Infrastructure.Data
     /// Maps all tables and configures relationships.
     /// Database-First approach - entities map to existing tables.
     /// 
-    /// AUDIT SYSTEM (NOVI PRISTUP):
+    /// AUDIT SYSTEM (NOVI PRISTUP SA HttpContext.Items):
     /// - NE menjamo postojeće entitete (Document, DocumentLineItem, itd.)
     /// - Koristimo EF ChangeTracker za izvlačenje JSON snapshots
+    /// - Audit log ID se deli kroz HttpContext.Items (rešava DI scope problem)
     /// - Čuvamo kompletno stanje u tblAPIAuditLogEntityChanges
     /// - Akcija se zaključuje iz HTTP metode (POST=Insert, PUT=Update, DELETE=Delete)
     /// - JSON se čuva u OldValue/NewValue kolonama
@@ -31,7 +33,7 @@ namespace ERPAccounting.Infrastructure.Data
     {
         private readonly ICurrentUserService _currentUserService;
         private readonly IAuditLogService? _auditLogService;
-        private int? _currentAuditLogId;
+        private readonly IHttpContextAccessor? _httpContextAccessor;
         
         private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
         {
@@ -44,46 +46,65 @@ namespace ERPAccounting.Infrastructure.Data
         public AppDbContext(
             DbContextOptions<AppDbContext> options,
             ICurrentUserService currentUserService,
+            IHttpContextAccessor? httpContextAccessor = null,
             IAuditLogService? auditLogService = null) : base(options)
         {
             _currentUserService = currentUserService;
+            _httpContextAccessor = httpContextAccessor;
             _auditLogService = auditLogService;
         }
 
         /// <summary>
-        /// Postavlja trenutni audit log ID za ovaj request.
-        /// Middleware poziva ovo sa IDAuditLog-om da bi SaveChanges mogao da povezuje izmene.
-        /// </summary>
-        public void SetCurrentAuditLogId(int auditLogId)
-        {
-            _currentAuditLogId = auditLogId;
-        }
-
-        /// <summary>
         /// Override SaveChangesAsync sa automatskim JSON snapshot tracking-om.
-        /// Ako je _currentAuditLogId setuvan, sve izmene na entitetima će biti logovane kao JSON snapshots.
+        /// Čita audit log ID iz HttpContext.Items i loguje snapshots ako je setovan.
         /// </summary>
         public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
-            // Ako imamo audit log ID, prikupi JSON snapshots PRE save-a
             List<(string EntityType, string EntityId, string Operation, object? OldState, object? NewState)>? snapshots = null;
+            int? currentAuditLogId = null;
             
-            if (_currentAuditLogId.HasValue && _auditLogService != null)
+            // Pročitaj audit log ID iz HttpContext.Items (setuje ga middleware)
+            if (_httpContextAccessor?.HttpContext != null)
             {
-                snapshots = CaptureEntitySnapshots();
+                if (_httpContextAccessor.HttpContext.Items.TryGetValue("__AuditLogId__", out var auditLogIdObj))
+                {
+                    if (auditLogIdObj is int auditLogId)
+                    {
+                        currentAuditLogId = auditLogId;
+                    }
+                }
+            }
+            
+            // Ako imamo audit log ID i audit service, prikupi JSON snapshots PRE save-a
+            if (currentAuditLogId.HasValue && _auditLogService != null)
+            {
+                try
+                {
+                    snapshots = CaptureEntitySnapshots();
+                    
+                    if (snapshots != null && snapshots.Any())
+                    {
+                        _logger?.LogDebug(
+                            "Captured {Count} entity snapshots for audit log {AuditLogId}",
+                            snapshots.Count,
+                            currentAuditLogId.Value);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Failed to capture entity snapshots");
+                    // Nastavljamo sa save-om čak i ako snapshot fails
+                }
             }
 
             // Izvrši glavni save
             var result = await base.SaveChangesAsync(cancellationToken);
 
             // Loguj snapshots POSLE save-a (da bi imali ID-eve novih entiteta)
-            if (snapshots != null && snapshots.Any())
+            if (snapshots != null && snapshots.Any() && currentAuditLogId.HasValue)
             {
-                await LogCapturedSnapshotsAsync(snapshots);
+                await LogCapturedSnapshotsAsync(currentAuditLogId.Value, snapshots);
             }
-
-            // Reset audit log ID
-            _currentAuditLogId = null;
 
             return result;
         }
@@ -101,6 +122,8 @@ namespace ERPAccounting.Infrastructure.Data
                            e.State == EntityState.Modified || 
                            e.State == EntityState.Deleted)
                 .ToList();
+
+            _logger?.LogDebug("Found {Count} changed entities in ChangeTracker", entries.Count);
 
             foreach (var entry in entries)
             {
@@ -121,17 +144,20 @@ namespace ERPAccounting.Infrastructure.Data
                     {
                         // Za Added - samo novo stanje
                         newState = CreateSnapshot(entry, useCurrentValues: true);
+                        _logger?.LogDebug("Captured INSERT snapshot for {EntityType}:{EntityId}", entityType, primaryKey);
                     }
                     else if (entry.State == EntityState.Modified)
                     {
                         // Za Modified - oba stanja
                         oldState = CreateSnapshot(entry, useCurrentValues: false);
                         newState = CreateSnapshot(entry, useCurrentValues: true);
+                        _logger?.LogDebug("Captured UPDATE snapshot for {EntityType}:{EntityId}", entityType, primaryKey);
                     }
                     else if (entry.State == EntityState.Deleted)
                     {
                         // Za Deleted - samo staro stanje
                         oldState = CreateSnapshot(entry, useCurrentValues: false);
+                        _logger?.LogDebug("Captured DELETE snapshot for {EntityType}:{EntityId}", entityType, primaryKey);
                     }
 
                     snapshots.Add((entityType, primaryKey, operation, oldState, newState));
@@ -139,8 +165,7 @@ namespace ERPAccounting.Infrastructure.Data
                 catch (Exception ex)
                 {
                     // Ne dozvoljavamo da greška u snapshot-u prekine save
-                    // Logger je već pozvan, samo nastavljamo
-                    System.Diagnostics.Debug.WriteLine($"Failed to capture snapshot for {entityType}:{primaryKey} - {ex.Message}");
+                    _logger?.LogWarning(ex, "Failed to capture snapshot for {EntityType}:{EntityId}", entityType, primaryKey);
                 }
             }
 
@@ -170,10 +195,14 @@ namespace ERPAccounting.Infrastructure.Data
         /// Loguje prikupljene JSON snapshots u audit log.
         /// </summary>
         private async Task LogCapturedSnapshotsAsync(
+            int auditLogId,
             List<(string EntityType, string EntityId, string Operation, object? OldState, object? NewState)> snapshots)
         {
-            if (_auditLogService == null || !_currentAuditLogId.HasValue)
+            if (_auditLogService == null)
+            {
+                _logger?.LogWarning("AuditLogService is null, cannot log snapshots");
                 return;
+            }
 
             foreach (var snapshot in snapshots)
             {
@@ -181,18 +210,27 @@ namespace ERPAccounting.Infrastructure.Data
                 {
                     // Loguj kompletan JSON snapshot
                     await _auditLogService.LogEntitySnapshotAsync(
-                        _currentAuditLogId.Value,
+                        auditLogId,
                         snapshot.EntityType,
                         snapshot.EntityId,
                         snapshot.Operation,
                         snapshot.OldState,
                         snapshot.NewState
                     );
+                    
+                    _logger?.LogDebug(
+                        "Successfully logged snapshot for {EntityType}:{EntityId} to audit log {AuditLogId}",
+                        snapshot.EntityType,
+                        snapshot.EntityId,
+                        auditLogId);
                 }
-                catch
+                catch (Exception ex)
                 {
                     // Ignore audit failures - ne smeju da prekinu main transaction
-                    // Greška je već logovana u AuditLogService
+                    _logger?.LogError(ex, 
+                        "Failed to log snapshot for {EntityType}:{EntityId}",
+                        snapshot.EntityType,
+                        snapshot.EntityId);
                 }
             }
         }
