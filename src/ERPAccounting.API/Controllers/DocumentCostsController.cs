@@ -1,10 +1,8 @@
 using System.Collections.Generic;
-using System.Linq;
-using ERPAccounting.API.Helpers;
 using ERPAccounting.Application.DTOs.Costs;
 using ERPAccounting.Application.Services;
-using ERPAccounting.Common.Models;
 using ERPAccounting.Common.Exceptions;
+using ERPAccounting.Common.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -82,17 +80,13 @@ namespace ERPAccounting.API.Controllers
         {
             try
             {
-                if (!IfMatchHeaderParser.TryExtractRowVersion(
-                        HttpContext,
-                        _logger,
-                        "document cost update",
-                        out var expectedRowVersion,
-                        out var problemDetails))
+                var expectedRowVersion = ExtractRowVersionFromIfMatch();
+                if (expectedRowVersion == null)
                 {
-                    return BadRequest(problemDetails);
+                    return BadRequest(new { message = "Missing or invalid If-Match header" });
                 }
 
-                var updated = await _costService.UpdateCostAsync(documentId, costId, expectedRowVersion!, dto);
+                var updated = await _costService.UpdateCostAsync(documentId, costId, expectedRowVersion, dto);
                 Response.Headers["ETag"] = $"\"{updated.ETag}\"";
                 return Ok(updated);
             }
@@ -174,17 +168,13 @@ namespace ERPAccounting.API.Controllers
         {
             try
             {
-                if (!IfMatchHeaderParser.TryExtractRowVersion(
-                        HttpContext,
-                        _logger,
-                        "document cost item PATCH",
-                        out var expectedRowVersion,
-                        out var problemDetails))
+                var expectedRowVersion = ExtractRowVersionFromIfMatch();
+                if (expectedRowVersion == null)
                 {
-                    return BadRequest(problemDetails);
+                    return BadRequest(new { message = "Missing or invalid If-Match header" });
                 }
 
-                var updated = await _costService.UpdateCostItemAsync(documentId, costId, itemId, expectedRowVersion!, dto);
+                var updated = await _costService.UpdateCostItemAsync(documentId, costId, itemId, expectedRowVersion, dto);
                 Response.Headers["ETag"] = $"\"{updated.ETag}\"";
                 return Ok(updated);
             }
@@ -218,6 +208,26 @@ namespace ERPAccounting.API.Controllers
         {
             var result = await _costService.DistributeCostAsync(documentId, costId, dto);
             return Ok(result);
+        }
+
+        private byte[]? ExtractRowVersionFromIfMatch()
+        {
+            var ifMatch = Request.Headers["If-Match"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(ifMatch))
+            {
+                _logger.LogWarning("Missing If-Match header for cost endpoint");
+                return null;
+            }
+
+            try
+            {
+                return Convert.FromBase64String(ifMatch.Trim('"'));
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogWarning(ex, "Invalid ETag format for cost endpoint: {IfMatch}", ifMatch);
+                return null;
+            }
         }
     }
 }
