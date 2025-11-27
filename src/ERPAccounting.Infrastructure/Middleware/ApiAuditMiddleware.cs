@@ -5,7 +5,6 @@ using System.Text;
 using System.Threading.Tasks;
 using ERPAccounting.Common.Interfaces;
 using ERPAccounting.Domain.Entities;
-using ERPAccounting.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
@@ -15,15 +14,18 @@ namespace ERPAccounting.Infrastructure.Middleware
     /// Middleware za automatsko logovanje svih API poziva sa JSON snapshot podrškom.
     /// Hvataj request/response i čuva u tblAPIAuditLog tabelu.
     /// 
-    /// NOVI PRISTUP:
-    /// - Postavlja _currentAuditLogId na AppDbContext
-    /// - SaveChangesAsync automatski hvata JSON snapshots iz ChangeTracker-a
-    /// - JSON se čuva u tblAPIAuditLogEntityChanges
+    /// NOVI PRISTUP SA HttpContext.Items:
+    /// - Koristi HttpContext.Items za deljenje audit log ID-a
+    /// - Svi DbContext instance-i mogu da pročitaju audit log ID iz HttpContext-a
+    /// - Rešava problem različitih DI scope-ova
     /// </summary>
     public class ApiAuditMiddleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<ApiAuditMiddleware> _logger;
+        
+        // Ključ za čuvanje audit log ID-a u HttpContext.Items
+        public const string AuditLogIdKey = "__AuditLogId__";
 
         public ApiAuditMiddleware(RequestDelegate next, ILogger<ApiAuditMiddleware> logger)
         {
@@ -34,8 +36,7 @@ namespace ERPAccounting.Infrastructure.Middleware
         public async Task InvokeAsync(
             HttpContext context,
             IAuditLogService auditLogService,
-            ICurrentUserService currentUserService,
-            AppDbContext dbContext)
+            ICurrentUserService currentUserService)
         {
             var request = context.Request;
             var originalBodyStream = context.Response.Body;
@@ -55,7 +56,7 @@ namespace ERPAccounting.Infrastructure.Middleware
                 CorrelationId = Guid.NewGuid()
             };
 
-            // 2. Pročitaj request body (ako je moguće) – bez zatvaranja streama
+            // 2. Pročitaj request body (ako je moguće)
             if (request.Method == "POST" || request.Method == "PUT" || request.Method == "PATCH")
             {
                 if (request.ContentLength > 0)
@@ -90,13 +91,19 @@ namespace ERPAccounting.Infrastructure.Middleware
             {
                 // 4. Kreiraj audit log I DOBIJ ID
                 await auditLogService.LogAsync(auditLog);
-                auditLogId = auditLog.IDAuditLog; // EF postavlja ID nakon insert-a
+                auditLogId = auditLog.IDAuditLog;
 
-                // 5. KRITIČNO: Postavi audit log ID na DbContext
-                // Ovo omogućava SaveChangesAsync da zna gde da loguje promene
+                // 5. KRITIČNO: Postavi audit log ID u HttpContext.Items
+                // Ovaj ID će biti dostupan svim DbContext instance-ima kroz HttpContextAccessor
                 if (auditLogId > 0)
                 {
-                    dbContext.SetCurrentAuditLogId(auditLogId);
+                    context.Items[AuditLogIdKey] = auditLogId;
+                    
+                    _logger.LogDebug(
+                        "Audit log ID {AuditLogId} set in HttpContext for {Method} {Endpoint}",
+                        auditLogId,
+                        request.Method,
+                        request.Path);
                 }
 
                 // 6. Izvrši request pipeline (ovde se događa SaveChangesAsync sa audit tracking-om)
@@ -109,14 +116,14 @@ namespace ERPAccounting.Infrastructure.Middleware
                 auditLog.IsSuccess = context.Response.StatusCode >= 200 && context.Response.StatusCode < 400;
                 auditLog.ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds;
 
-                // 8. Pokušaj da pročitaš response body za error responses
+                // 8. ISPRAVKA: Hvata response body ZA SVE statuse (ne samo errore)
                 if (responseBodyStream.CanSeek && responseBodyStream.Length > 0)
                 {
                     responseBodyStream.Seek(0, SeekOrigin.Begin);
                     using (var reader = new StreamReader(responseBodyStream, Encoding.UTF8, leaveOpen: true))
                     {
-                        // Loguj samo za error responses
-                        if (auditLog.IsSuccess == false)
+                        // Loguj response body ZA SVE operacije koje menjaju stanje (POST, PUT, DELETE)
+                        if (request.Method == "POST" || request.Method == "PUT" || request.Method == "DELETE")
                         {
                             auditLog.ResponseBody = await reader.ReadToEndAsync();
                         }
