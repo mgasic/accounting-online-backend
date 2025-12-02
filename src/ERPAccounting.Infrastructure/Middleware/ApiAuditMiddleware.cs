@@ -28,6 +28,9 @@ namespace ERPAccounting.Infrastructure.Middleware
         // Ključ za čuvanje audit log ID-a u HttpContext.Items
         public const string AuditLogIdKey = "__AuditLogId__";
 
+        // Maximum body size to log (10 MB)
+        private const int MaxBodySize = 10 * 1024 * 1024;
+
         public ApiAuditMiddleware(RequestDelegate next, ILogger<ApiAuditMiddleware> logger)
         {
             _next = next;
@@ -57,33 +60,8 @@ namespace ERPAccounting.Infrastructure.Middleware
                 CorrelationId = Guid.NewGuid()
             };
 
-            // 2. ISPRAVKA: Pročitaj request body za SVE metode koje imaju content
-            if (request.ContentLength > 0 && request.Body.CanRead)
-            {
-                try
-                {
-                    request.EnableBuffering();
-
-                    if (request.Body.CanSeek)
-                    {
-                        request.Body.Seek(0, SeekOrigin.Begin);
-                    }
-
-                    using (var reader = new StreamReader(request.Body, Encoding.UTF8, leaveOpen: true))
-                    {
-                        auditLog.RequestBody = await reader.ReadToEndAsync();
-                    }
-
-                    if (request.Body.CanSeek)
-                    {
-                        request.Body.Seek(0, SeekOrigin.Begin);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to read request body");
-                }
-            }
+            // 2. 🔧 FIXED: Properly read request body
+            auditLog.RequestBody = await ReadRequestBodyAsync(request);
 
             // 3. Privremeni stream za response
             var responseBodyStream = new MemoryStream();
@@ -121,25 +99,14 @@ namespace ERPAccounting.Infrastructure.Middleware
                 auditLog.IsSuccess = context.Response.StatusCode >= 200 && context.Response.StatusCode < 400;
                 auditLog.ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds;
 
-                // 8. ISPRAVKA: Hvata response body ZA SVE metode
-                if (responseBodyStream.CanSeek && responseBodyStream.Length > 0)
-                {
-                    responseBodyStream.Seek(0, SeekOrigin.Begin);
-                    using (var reader = new StreamReader(responseBodyStream, Encoding.UTF8, leaveOpen: true))
-                    {
-                        auditLog.ResponseBody = await reader.ReadToEndAsync();
-                    }
-                    responseBodyStream.Seek(0, SeekOrigin.Begin);
-                }
+                // 8. 🔧 FIXED: Properly read response body
+                auditLog.ResponseBody = await ReadResponseBodyAsync(responseBodyStream);
 
                 // 9. Ažuriraj audit log sa response podacima
                 await auditLogService.UpdateAsync(auditLog);
 
                 // 10. Vrati response u originalni stream
-                if (responseBodyStream.Length > 0)
-                {
-                    await responseBodyStream.CopyToAsync(originalBodyStream);
-                }
+                await CopyResponseBodyAsync(responseBodyStream, originalBodyStream);
             }
             catch (Exception ex)
             {
@@ -155,15 +122,7 @@ namespace ERPAccounting.Infrastructure.Middleware
                 auditLog.ResponseTimeMs = (int)stopwatch.ElapsedMilliseconds;
 
                 // Pokuša da pročita response body i za error
-                if (responseBodyStream.CanSeek && responseBodyStream.Length > 0)
-                {
-                    responseBodyStream.Seek(0, SeekOrigin.Begin);
-                    using (var reader = new StreamReader(responseBodyStream, Encoding.UTF8, leaveOpen: true))
-                    {
-                        auditLog.ResponseBody = await reader.ReadToEndAsync();
-                    }
-                    responseBodyStream.Seek(0, SeekOrigin.Begin);
-                }
+                auditLog.ResponseBody = await ReadResponseBodyAsync(responseBodyStream);
 
                 try
                 {
@@ -171,16 +130,12 @@ namespace ERPAccounting.Infrastructure.Middleware
                 }
                 catch (Exception auditEx)
                 {
-                    // Ne dozvoljavamo da audit failure crashuje aplikaciju
+                    // Ne dozvoljavamo da audit failure crašuje aplikaciju
                     _logger.LogError(auditEx, "Failed to update audit entry for failed request");
                 }
 
                 // 12. Vrati response body u originalni stream ako ima nečega
-                if (responseBodyStream.CanSeek && responseBodyStream.Length > 0)
-                {
-                    responseBodyStream.Seek(0, SeekOrigin.Begin);
-                    await responseBodyStream.CopyToAsync(originalBodyStream);
-                }
+                await CopyResponseBodyAsync(responseBodyStream, originalBodyStream);
 
                 // Re-throw originalni exception
                 throw;
@@ -190,6 +145,117 @@ namespace ERPAccounting.Infrastructure.Middleware
                 // 13. Uvek vrati originalni stream i očisti privremeni
                 context.Response.Body = originalBodyStream;
                 await responseBodyStream.DisposeAsync();
+            }
+        }
+
+        /// <summary>
+        /// Reads request body from stream without consuming it
+        /// </summary>
+        private async Task<string?> ReadRequestBodyAsync(HttpRequest request)
+        {
+            // Skip if no content or OPTIONS request
+            if (request.ContentLength == null || request.ContentLength == 0)
+            {
+                return null;
+            }
+
+            if (request.Method == "OPTIONS")
+            {
+                return null;
+            }
+
+            // Skip large bodies
+            if (request.ContentLength > MaxBodySize)
+            {
+                return $"[Body too large: {request.ContentLength} bytes]";
+            }
+
+            try
+            {
+                // Enable buffering so we can read the body multiple times
+                request.EnableBuffering();
+
+                // Ensure we're at the start
+                if (request.Body.CanSeek)
+                {
+                    request.Body.Position = 0;
+                }
+
+                // Read the body
+                using (var reader = new StreamReader(
+                    request.Body,
+                    encoding: Encoding.UTF8,
+                    detectEncodingFromByteOrderMarks: false,
+                    bufferSize: 4096,
+                    leaveOpen: true))
+                {
+                    var body = await reader.ReadToEndAsync();
+
+                    // Reset position for the next middleware
+                    if (request.Body.CanSeek)
+                    {
+                        request.Body.Position = 0;
+                    }
+
+                    return string.IsNullOrWhiteSpace(body) ? null : body;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read request body");
+                return $"[Error reading body: {ex.Message}]";
+            }
+        }
+
+        /// <summary>
+        /// Reads response body from memory stream
+        /// </summary>
+        private async Task<string?> ReadResponseBodyAsync(MemoryStream responseBodyStream)
+        {
+            if (responseBodyStream.Length == 0)
+            {
+                return null;
+            }
+
+            // Skip large responses
+            if (responseBodyStream.Length > MaxBodySize)
+            {
+                return $"[Body too large: {responseBodyStream.Length} bytes]";
+            }
+
+            try
+            {
+                responseBodyStream.Position = 0;
+                
+                using (var reader = new StreamReader(
+                    responseBodyStream,
+                    encoding: Encoding.UTF8,
+                    detectEncodingFromByteOrderMarks: false,
+                    bufferSize: 4096,
+                    leaveOpen: true))
+                {
+                    var body = await reader.ReadToEndAsync();
+                    responseBodyStream.Position = 0; // Reset for copying
+                    return string.IsNullOrWhiteSpace(body) ? null : body;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read response body");
+                return $"[Error reading body: {ex.Message}]";
+            }
+        }
+
+        /// <summary>
+        /// Copies response body from temporary stream to original stream
+        /// </summary>
+        private async Task CopyResponseBodyAsync(MemoryStream source, Stream destination)
+        {
+            if (source.Length > 0)
+            {
+                source.Position = 0;
+                await source.CopyToAsync(destination);
+                await destination.FlushAsync();
             }
         }
     }
