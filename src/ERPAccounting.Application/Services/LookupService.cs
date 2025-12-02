@@ -1,12 +1,9 @@
-using ERPAccounting.Application.DTOs;
+﻿using ERPAccounting.Application.DTOs;
 using ERPAccounting.Domain.Abstractions.Gateways;
 using ERPAccounting.Domain.Lookups;
-using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
-using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
-using Dapper;
 
 namespace ERPAccounting.Application.Services;
 
@@ -18,17 +15,10 @@ public class LookupService : ILookupService
 {
     private const string DefaultDocumentTypeId = "UR";
     private readonly IStoredProcedureGateway _storedProcedureGateway;
-    private readonly IDbConnection _dbConnection;
-    private readonly ILogger<LookupService> _logger;
 
-    public LookupService(
-        IStoredProcedureGateway storedProcedureGateway,
-        IDbConnection dbConnection,
-        ILogger<LookupService> logger)
+    public LookupService(IStoredProcedureGateway storedProcedureGateway)
     {
         _storedProcedureGateway = storedProcedureGateway;
-        _dbConnection = dbConnection;
-        _logger = logger;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -106,118 +96,35 @@ public class LookupService : ILookupService
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // NEW METHODS - Server-Side Search (Raw SQL)
+    // 🆕 NEW METHODS - Server-Side Search
     // ═══════════════════════════════════════════════════════════════
 
     /// <summary>
     /// Pretraga partnera po šifri ili nazivu (server-side filtering).
-    /// Koristi Dapper za direktan SQL query.
     /// </summary>
     public async Task<List<PartnerComboDto>> SearchPartnersAsync(string searchTerm, int limit = 50)
     {
         if (string.IsNullOrWhiteSpace(searchTerm) || searchTerm.Length < 2)
         {
-            _logger.LogWarning("SearchPartnersAsync called with invalid search term: '{SearchTerm}'", searchTerm);
             return new List<PartnerComboDto>();
         }
 
-        // Normalize i cap limit
-        var normalizedTerm = $"%{searchTerm.Trim()}%";
-        var cappedLimit = Math.Min(Math.Max(limit, 1), 100);
-
-        const string sql = @"
-            SELECT TOP (@Limit)
-                PartnerID AS IdPartner,
-                Naziv AS NazivPartnera,
-                Mesto,
-                Opis,
-                StatusID AS IdStatus,
-                NacinOporezivanjaID_Nabavka AS IdNacinOporezivanjaNabavka,
-                ObracunAkciza,
-                ObracunPorez,
-                ReferentID AS IdReferent,
-                Sifra AS SifraPartner
-            FROM tblPartner
-            WHERE StatusNabavka = 'Aktivan'
-              AND (Sifra LIKE @SearchTerm OR Naziv LIKE @SearchTerm)
-            ORDER BY Naziv";
-
-        try
-        {
-            var results = await _dbConnection.QueryAsync<PartnerLookup>(
-                sql,
-                new { Limit = cappedLimit, SearchTerm = normalizedTerm });
-
-            var dtos = results.Select(MapToPartnerDto).ToList();
-            
-            _logger.LogInformation(
-                "Partner search: '{SearchTerm}' returned {Count} results",
-                searchTerm,
-                dtos.Count);
-
-            return dtos;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to search partners with term: '{SearchTerm}'", searchTerm);
-            throw;
-        }
+        var partners = await _storedProcedureGateway.SearchPartnersAsync(searchTerm, limit);
+        return partners.Select(MapToPartnerDto).ToList();
     }
 
     /// <summary>
     /// Pretraga artikala po šifri ili nazivu (server-side filtering).
-    /// Koristi Dapper za direktan SQL query.
     /// </summary>
     public async Task<List<ArticleComboDto>> SearchArticlesAsync(string searchTerm, int limit = 50)
     {
         if (string.IsNullOrWhiteSpace(searchTerm) || searchTerm.Length < 2)
         {
-            _logger.LogWarning("SearchArticlesAsync called with invalid search term: '{SearchTerm}'", searchTerm);
             return new List<ArticleComboDto>();
         }
 
-        // Normalize i cap limit
-        var normalizedTerm = $"%{searchTerm.Trim()}%";
-        var cappedLimit = Math.Min(Math.Max(limit, 1), 100);
-
-        const string sql = @"
-            SELECT TOP (@Limit)
-                ArtikalID AS IdArtikal,
-                Sifra AS SifraArtikal,
-                Naziv AS NazivArtikla,
-                JedinicaMere,
-                PoreskaStopaID AS IdPoreskaStopa,
-                ProcenatPoreza,
-                Akciza,
-                KoeficijentKolicine,
-                ImaLot,
-                OtkupnaCena,
-                PoljoprivredniProizvod
-            FROM tblArtikal
-            WHERE StatusUlaz = 'Aktivan'
-              AND (Sifra LIKE @SearchTerm OR Naziv LIKE @SearchTerm)
-            ORDER BY Naziv";
-
-        try
-        {
-            var results = await _dbConnection.QueryAsync<ArticleLookup>(
-                sql,
-                new { Limit = cappedLimit, SearchTerm = normalizedTerm });
-
-            var dtos = results.Select(MapToArticleDto).ToList();
-            
-            _logger.LogInformation(
-                "Article search: '{SearchTerm}' returned {Count} results",
-                searchTerm,
-                dtos.Count);
-
-            return dtos;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to search articles with term: '{SearchTerm}'", searchTerm);
-            throw;
-        }
+        var articles = await _storedProcedureGateway.SearchArticlesAsync(searchTerm, limit);
+        return articles.Select(MapToArticleDto).ToList();
     }
 
     // ═══════════════════════════════════════════════════════════════
