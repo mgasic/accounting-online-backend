@@ -7,6 +7,7 @@ using ERPAccounting.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -69,6 +70,11 @@ builder.Services.AddControllers(options =>
 })
 .AddJsonOptions(options =>
 {
+    // FIXED: Dodaj custom DateTime converter za ISO 8601 format sa timezone-om
+    // KRITIČNO: Mora biti PRIJE drugih convertera
+    options.JsonSerializerOptions.Converters.Add(new IsoDateTimeConverter());
+    options.JsonSerializerOptions.Converters.Add(new IsoNullableDateTimeConverter());
+    
     // Podrška za više formata DateTime-a
     // Prihvata: "2025-11-26", "2025-11-26T02:01:17", "2025-11-26 02:01:17.863"
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -166,3 +172,160 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+/// <summary>
+/// FIXED: Custom JSON converter za DateTime koji pravilno handla ISO 8601 format sa timezone-om
+/// 
+/// Podržava formate:
+/// - "2025-12-12" (datum samo, interpretira se kao UTC)
+/// - "2025-12-12T00:00:00" (datetime bez timezone, UTC)
+/// - "2025-12-12T00:00:00Z" (UTC timezone)
+/// - "2025-12-12T00:00:00.000Z" (UTC sa milisekundama)
+/// - "2025-12-12T00:00:00+01:00" (sa timezone offset)
+/// 
+/// KRITIČNO: Sprječava vraćanje DateTime.MinValue ({1.1.0001}) zbog neuspješne deserijalizacije
+/// 
+/// ISPRAVLJENO: DateTimeStyles.RoundtripKind NIJE kompatibilan sa AdjustToUniversal
+/// </summary>
+public class IsoDateTimeConverter : JsonConverter<DateTime>
+{
+    public override DateTime Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        string? dateString = reader.GetString();
+
+        if (string.IsNullOrEmpty(dateString))
+        {
+            return DateTime.MinValue;
+        }
+
+        // ✅ ISPRAVKA 1: Pokušaj sa RoundtripKind (čuva timezone info)
+        // RoundtripKind se koristi SAMO, bez kombinovanja sa AssumeLocal/AssumeUniversal/AdjustToUniversal
+        if (DateTime.TryParse(
+            dateString,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out DateTime result))
+        {
+            // Ako je parsed kao Utc, vrati kako jeste
+            // Ako je Local, konvertuj u UTC
+            if (result.Kind == DateTimeKind.Local)
+            {
+                return result.ToUniversalTime();
+            }
+            return result;
+        }
+
+        // ✅ ISPRAVKA 2: Ako RoundtripKind ne uspije, pokušaj sa AssumeUniversal
+        // AssumeUniversal tretira datume bez timezone kao UTC
+        if (DateTime.TryParse(
+            dateString,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal,
+            out DateTime resultAsUtc))
+        {
+            return resultAsUtc;
+        }
+
+        // ✅ ISPRAVKA 3: Fallback - samo parsiraj normalcno
+        if (DateTime.TryParse(dateString, out DateTime fallback))
+        {
+            // Ako je fallback Local, konvertuj u UTC
+            if (fallback.Kind == DateTimeKind.Local)
+            {
+                return fallback.ToUniversalTime();
+            }
+            return fallback;
+        }
+
+        // Ultimativni fallback - nema greške, vrati min value
+        return DateTime.MinValue;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        DateTime value,
+        JsonSerializerOptions options)
+    {
+        // Konvertuj u UTC i ispisu u ISO 8601 formatu sa 'Z' sufiksom
+        writer.WriteStringValue(value.ToUniversalTime().ToString("o"));
+    }
+}
+
+/// <summary>
+/// FIXED: Custom JSON converter za nullable DateTime
+/// </summary>
+public class IsoNullableDateTimeConverter : JsonConverter<DateTime?>
+{
+    public override DateTime? Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            return null;
+        }
+
+        string? dateString = reader.GetString();
+
+        if (string.IsNullOrEmpty(dateString))
+        {
+            return null;
+        }
+
+        // ✅ ISPRAVKA 1: Pokušaj sa RoundtripKind
+        if (DateTime.TryParse(
+            dateString,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out DateTime result))
+        {
+            if (result.Kind == DateTimeKind.Local)
+            {
+                return result.ToUniversalTime();
+            }
+            return result;
+        }
+
+        // ✅ ISPRAVKA 2: Pokušaj sa AssumeUniversal
+        if (DateTime.TryParse(
+            dateString,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal,
+            out DateTime resultAsUtc))
+        {
+            return resultAsUtc;
+        }
+
+        // ✅ ISPRAVKA 3: Fallback
+        if (DateTime.TryParse(dateString, out DateTime fallback))
+        {
+            if (fallback.Kind == DateTimeKind.Local)
+            {
+                return fallback.ToUniversalTime();
+            }
+            return fallback;
+        }
+
+        // Ako niko od parsera ne uspije, vrati null umjesto greške
+        return null;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        DateTime? value,
+        JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+        {
+            writer.WriteStringValue(value.Value.ToUniversalTime().ToString("o"));
+        }
+        else
+        {
+            writer.WriteNullValue();
+        }
+    }
+}

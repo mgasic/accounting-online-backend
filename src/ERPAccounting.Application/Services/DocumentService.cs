@@ -121,6 +121,30 @@ public class DocumentService : IDocumentService
         return true;
     }
 
+    /// <summary>
+    /// Pretraga dokumenata sa naprednijim filterima
+    /// Napomena: Ova implementacija koristi GetPaginatedAsync sa search parametrom
+    /// Za kompleksnije filtere, trebalo bi refaktorisati na IQueryable<> pristup
+    /// </summary>
+    public async Task<PaginatedResult<DocumentDto>> SearchDocumentsAsync(DocumentSearchDto searchDto)
+    {
+        ArgumentNullException.ThrowIfNull(searchDto);
+
+        // Privremena implementacija: koristi GetPaginatedAsync sa dokumentnim brojem
+        // TODO: Refaktorisati na IQueryable<> za kompleksne filtere (partner, datum, status, itd.)
+        
+        var searchTerm = searchDto.DocumentNumber ?? string.Empty;
+        
+        var (items, totalCount) = await _documentRepository.GetPaginatedAsync(
+            searchDto.PageNumber,
+            searchDto.PageSize,
+            searchTerm);
+
+        var documentDtos = _mapper.Map<List<DocumentDto>>(items);
+
+        return new PaginatedResult<DocumentDto>(documentDtos, totalCount, searchDto.PageNumber, searchDto.PageSize);
+    }
+
     private static bool MatchesRowVersion(Document entity, byte[] expectedRowVersion)
     {
         if (entity.DokumentTimeStamp is null)
